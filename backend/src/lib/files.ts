@@ -5,6 +5,7 @@ const dataDir = join(import.meta.dirname, '..', '..', 'data');
 
 export const projectsDir = join(dataDir, 'projects');
 export const postsDir = join(dataDir, 'posts');
+export const appsDir = join(dataDir, 'apps');
 export const mediaDir = process.env.MEDIA_DIR ?? join(import.meta.dirname, '..', '..', 'public_html', 'media');
 
 export async function readJSON<T>(filePath: string): Promise<T> {

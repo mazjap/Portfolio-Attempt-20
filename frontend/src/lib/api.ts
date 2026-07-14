@@ -1,4 +1,4 @@
-import type { ProjectPreview, ProjectNav, ProjectDetail, PostPreview, PostNav, PostDetail } from '../types';
+import type { ProjectPreview, ProjectNav, ProjectDetail, PostPreview, PostNav, PostDetail, AppPrivacyPolicy, AppSupport } from '../types';
 
 const BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -18,5 +18,9 @@ export const api = {
     list: () => get<PostPreview[]>('/api/posts'),
     nav: () => get<PostNav[]>('/api/posts/nav'),
     get: (id: string) => get<PostDetail>(`/api/posts/${id}`),
+  },
+  apps: {
+    privacyPolicy: (id: string) => get<AppPrivacyPolicy>(`/api/apps/${id}/privacy-policy`),
+    support: (id: string) => get<AppSupport>(`/api/apps/${id}/support`),
   },
 };

@@ -52,3 +52,22 @@ export interface PostNav {
   createdAt: string;
   series?: string;
 }
+
+export interface AppPrivacyPolicy {
+  id: string;
+  appName: string;
+  lastUpdated: string;
+  content: string;
+  contactUrl?: string;
+  contactText?: string;
+}
+
+export interface AppSupport {
+  id: string;
+  appName: string;
+  version: string;
+  subtitle: string;
+  content: string;
+  contactUrl?: string;
+  contactText?: string;
+}

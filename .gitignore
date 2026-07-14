@@ -16,6 +16,7 @@ dist-ssr
 # API-managed content
 backend/data/projects/*.json
 backend/data/posts/*.json
+backend/data/apps/*/*.json
 backend/public_html/media/
 
 # Editor directories and files

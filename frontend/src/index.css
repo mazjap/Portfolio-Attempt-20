@@ -38,18 +38,6 @@
 }
 
 /* Xcode-flavored syntax highlighting */
-pre:has(.hljs) {
-  overflow-x: auto;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  margin-bottom: 1rem;
-  background: #E8E8E3;
-}
-
-.dark pre:has(.hljs) {
-  background: #1d1f21;
-}
-
 .hljs {
   display: block;
   background: transparent;

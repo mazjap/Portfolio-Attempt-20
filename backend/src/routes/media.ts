@@ -111,7 +111,6 @@ router.post('/upload', authenticate, async (req, res) => {
 
     await sharp(req.file.path, { animated: req.file.mimetype === 'image/gif' })
       .webp({ quality: 85 })
-      .withMetadata(false)
       .toFile(destPath);
 
     await unlink(req.file.path);

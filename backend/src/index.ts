@@ -4,6 +4,7 @@ import cors from 'cors';
 import projectsRouter from './routes/projects.js';
 import postsRouter from './routes/posts.js';
 import mediaRouter from './routes/media.js';
+import appsRouter from './routes/apps.js';
 import { mediaDir } from './lib/files.js';
 import { logger } from './lib/logger.js';
 
@@ -40,6 +41,7 @@ app.use((req, res, next) => {
 app.use('/media', express.static(mediaDir));
 app.use('/api/projects', projectsRouter);
 app.use('/api/posts', postsRouter);
+app.use('/api/apps', appsRouter);
 app.use('/api/media', mediaRouter);
 
 app.listen(PORT, () => {

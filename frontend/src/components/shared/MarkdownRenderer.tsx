@@ -48,7 +48,7 @@ export default function MarkdownRenderer({ content, className = '' }: Props) {
           code: ({ className: cls, children, ...props }) => {
             const isBlock = cls?.includes('language-');
             if (isBlock) {
-              return <code className={cls} {...props}>{children}</code>;
+              return <code className={`${cls ?? ''} block w-full`} {...props}>{children}</code>;
             }
             return (
               <code className="font-mono text-sm bg-xcode-surface-light dark:bg-xcode-surface px-1.5 py-0.5 rounded text-xcode-pink">
@@ -57,7 +57,9 @@ export default function MarkdownRenderer({ content, className = '' }: Props) {
             );
           },
           pre: ({ children }) => (
-            <pre>{children}</pre>
+            <pre className="w-full mb-4 overflow-x-auto rounded-lg p-4 bg-xcode-surface-light dark:bg-xcode-surface">
+              {children}
+            </pre>
           ),
           hr: () => <hr className="border-xcode-border-light dark:border-xcode-border my-6" />,
           img: ({ src, alt }) => (
