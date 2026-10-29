@@ -8,6 +8,7 @@
     "check": "tsx src/scripts/check.ts",
     "media:derive": "tsx src/scripts/derive-media.ts",
     "smoke": "tsx src/scripts/smoke.ts",
+    "snapshot": "tsx src/scripts/snapshot.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "build": "tsc",
     "start": "node dist/index.js"
