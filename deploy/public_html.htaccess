@@ -1,52 +1,52 @@
-# Template for ~/public_html/.htaccess (LiteSpeed/Apache on Namecheap cPanel).
-#
-# Reconcile with the live file rather than replacing it: cPanel's "Setup Node.js App" writes its own
-# Passenger block (between "DO NOT EDIT" markers) for the backend; keep that block exactly as it is.
-# Nothing here contains secrets; those go in the backend's SetEnv block (backend.htaccess).
+### AutoSSL-Satellite Don't Edit Below This Line ###
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Force HTTPS
+    RewriteCond %{HTTPS} off
+    RewriteCond %{HTTP:X-Forwarded-SSL} !on
+    RewriteRule ^(.*)$ "https://%{HTTP_HOST}%{REQUEST_URI}" [R=301,L]
+</IfModule>
+### AutoSSL-Satellite Don't Edit Above This Line ###
 
-RewriteEngine On
+# A copy of the live ~/public_html/.htaccess (deployed October 29, 2026). Keep them in step: edit this
+# copy, then paste it into cPanel's File Manager. The AutoSSL block above is managed by cPanel; leave it
+# as it is. See DEPLOY.md ("The .htaccess").
 
-# ── HTTPS ───────────────────────────────────────────────────────────────────
-RewriteCond %{HTTPS} off
-RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
 
-# Optional: one canonical host. Share pages and the sitemap use SITE_URL (no www), and both hosts
-# currently serve the site. Uncomment to send www to the bare domain.
-# RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
-# RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
+    # Legacy app URL redirects
+    RewriteRule ^([^/]+)-privacy$ /apps/$1/privacy-policy [R=302,L]
+    RewriteRule ^([^/]+)-support$ /apps/$1/support [R=302,L]
 
-# ── API and media ───────────────────────────────────────────────────────────
-# /api is the Node app (routed by cPanel's Passenger block); /media is static files. Never rewrite them.
-RewriteRule ^(api|media)(/|$) - [L]
+    # Short-form app page redirects
+    RewriteRule ^([^/]+)/privacy-policy/?$ /apps/$1/privacy-policy [R=301,L]
+    RewriteRule ^([^/]+)/support/?$ /apps/$1/support [R=301,L]
 
-# ── Legacy app links (from before /apps/...) ────────────────────────────────
-# /<app>/privacy-policy and /<app>/support → /apps/<app>/...
-RewriteCond %{REQUEST_URI} !^/(apps|projects|blog)/
-RewriteRule ^([a-z0-9-]+)/(privacy-policy|support)/?$ /apps/$1/$2 [L,R=301]
-# /<app>-privacy and /<app>-support → /apps/<app>/...
-RewriteRule ^([a-z0-9-]+)-privacy/?$ /apps/$1/privacy-policy [L,R=301]
-RewriteRule ^([a-z0-9-]+)-support/?$ /apps/$1/support [L,R=301]
+    # Share pages: the backend writes _meta/<path>.html (index.html with this page's title and
+    # Open Graph tags) so link previews work. Serve it when it exists; the URL doesn't change.
+    RewriteCond %{DOCUMENT_ROOT}/_meta/$1.html -f
+    RewriteRule ^((?:projects|blog)(?:/[a-z0-9-]+)?|apps/[a-z0-9-]+/(?:privacy-policy|support))/?$ /_meta/$1.html [L]
 
-# ── Share pages ─────────────────────────────────────────────────────────────
-# The backend writes _meta/<path>.html (the app's index.html with that page's title, description, and
-# Open Graph tags) for projects, posts, app pages, and the two list pages. Serve it when it exists, so
-# link previews work; the browser URL doesn't change, and the page boots the app as usual.
-RewriteCond %{DOCUMENT_ROOT}/_meta/$1.html -f
-RewriteRule ^((?:projects|blog)(?:/[a-z0-9-]+)?|apps/[a-z0-9-]+/(?:privacy-policy|support))/?$ /_meta/$1.html [L]
+    # Let real files and directories through (JS, CSS, images, etc.)
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
 
-# ── Single-page app fallback ────────────────────────────────────────────────
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ /index.html [L]
+    # Don't rewrite API or media requests — let those reach the backend
+    RewriteCond %{REQUEST_URI} !^/api/
+    RewriteCond %{REQUEST_URI} !^/media/
 
-# ── Caching ─────────────────────────────────────────────────────────────────
-# HTML (index.html and share pages) must revalidate so a deploy is picked up immediately; the hashed
-# files in /assets never change, so they can be cached for a year.
+    # Everything else → index.html, React Router takes over
+    RewriteRule . /index.html [L]
+</IfModule>
+
+# HTML must revalidate so a deploy shows up right away; hashed files in /assets never change.
 <IfModule mod_headers.c>
-  <FilesMatch "\.html$">
-    Header set Cache-Control "no-cache"
-  </FilesMatch>
-  <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|css)$">
-    Header set Cache-Control "public, max-age=31536000, immutable"
-  </FilesMatch>
+    <FilesMatch "\.html$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
+    <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|css)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
 </IfModule>

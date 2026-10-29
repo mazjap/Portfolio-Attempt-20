@@ -14,11 +14,11 @@ The DEVDOCs are the detailed reference (API shapes, storage model, minimap, layo
 
 ## Setup
 
-`backend/.env` (gitignored; template `backend/.env.example`) holds `API_SECRET` (the Bearer token for writes) and optional overrides: `PORT` (default 3001), `FRONTEND_URL` (CORS), `SITE_URL`, `DATA_DIR`, `PUBLIC_DIR`, and `MEDIA_DIR`. On cPanel they're `SetEnv` directives in `.htaccess` (template `deploy/backend.htaccess`). **Never commit `.env` or print the secret.** The frontend's only variable is `VITE_API_BASE_URL` (default `""`, same origin).
+`backend/.env` (gitignored; template `backend/.env.example`) holds `API_SECRET` (the Bearer token for writes) and optional overrides: `PORT` (default 3001), `FRONTEND_URL` (CORS), `SITE_URL`, `DATA_DIR`, `PUBLIC_DIR`, and `MEDIA_DIR`. On the server they're environment variables on cPanel's Setup Node.js App page (not in `.htaccess`). **Never commit `.env` or print the secret.** The frontend's only variable is `VITE_API_BASE_URL` (default `""`, same origin).
 
-Content is gitignored: `backend/data/projects/*.json`, `backend/data/posts/*.json`, `backend/data/apps/*/*.json`, and `backend/public_html/media/`. The local copies are real content, not fixtures, and git can't restore them, so never delete or overwrite them. For experiments, point `DATA_DIR`, `PUBLIC_DIR`, and `MEDIA_DIR` at a scratch directory (the backend tests do this). The generated `backend/public_html/{sitemap.xml,feed.xml,_meta/}` are gitignored too.
+Content is gitignored: `backend/data/projects/*.json`, `backend/data/posts/*.json`, `backend/data/apps/*/*.json`, and `backend/public_html/media/`. The local copies are real content, not fixtures, and git can't restore them, so never delete or overwrite them. They're also **not current**: Folio edits go straight to the live site, so the live site is the source of truth (on October 29, 2026 the local copy was missing the whole Hyperline app, Flask Master's support page, and some TrekPoint edits). `npm run snapshot` downloads the live content for a fresh copy or a backup. For experiments, point `DATA_DIR`, `PUBLIC_DIR`, and `MEDIA_DIR` at a scratch directory (the backend tests do this). The generated `backend/public_html/{sitemap.xml,feed.xml,_meta/}` are gitignored too.
 
-**The live site is production.** Never send a write (`POST`, `PUT`, `DELETE`, upload) to jordan-christensen.com without asking the user and getting an explicit yes, every time. Read-only `GET`s are fine.
+**The live site is production.** Never send anything but `GET`/`HEAD` to jordan-christensen.com (no `POST`, `PUT`, `DELETE`, or upload, not even a malformed one to test an error path) without asking the user and getting an explicit yes, every time. Test error handling against a local or scratch backend instead.
 
 ## Commands
 
@@ -31,6 +31,7 @@ npm run regen         # rebuild index.json/nav.json, sitemap.xml, feed.xml, shar
 npm run check         # read-only integrity report: bad records, stale indexes, missing/orphaned media
 npm run media:derive  # create missing 640/1280 px image sizes (-- --dry-run to preview)
 npm run smoke -- https://jordan-christensen.com   # read-only checks against a deployed site
+npm run snapshot      # download the live content (GETs only) to ~/Developer/portfolio-backups/<date>-live
 npm run build         # tsc → dist/
 npx tsc --noEmit      # type-check only
 
@@ -45,13 +46,17 @@ npm run preview
 
 Before calling a change done, run both test suites, both builds, and frontend lint. CI (`.github/workflows/ci.yml`) runs the same checks plus `npm audit`. Every fix gets a regression test: backend tests in `backend/test/` (one temp data directory per file, via `setup()` in `test/helpers.ts`), and frontend tests next to the code as `*.test.ts(x)`. For behavior the tests can't show (layout, real browsers), run the built frontend against a scratch backend.
 
+Port 3001 may already be in use, by the user's own `npm run dev` or by another local project. Check with `lsof -nP -iTCP:3001 -sTCP:LISTEN` before assuming the Vite proxy reaches this backend, run scratch servers on other ports, and don't stop processes you didn't start.
+
 ## Git workflow
 
 `main` is the only branch. Commit only when the user asks. The user often has staged and unstaged work in progress, so commit only your own files, by explicit path (never `git add -A` or `git commit -a`), and leave changes you didn't make alone. If they would get in the way, ask instead of stashing or discarding them.
 
 ## Deployment
 
-Deployment is manual; follow `DEPLOY.md`. The live `.htaccess` isn't in the repo, but `deploy/public_html.htaccess` is a sanitized template: HTTPS, both legacy app-link forms, the `_meta` share-page rule, the SPA fallback, and caching. The host needs Node 20.9+ (sharp 0.35). After a frontend upload, the share pages need regenerating (restart the backend or `node scripts/regenerate.js`). `npm run smoke -- https://jordan-christensen.com` checks a deploy.
+Deployment is manual; follow `DEPLOY.md`. `deploy/public_html.htaccess` is a copy of the live file (cPanel's AutoSSL block, both legacy app-link forms, the `_meta` share-page rule, the SPA fallback, and caching headers); change the copy first, then the server.
+
+The backend runs as a cPanel "Setup Node.js App" (CloudLinux, Node 22; 20.9+ is required by sharp 0.35), with its settings as environment variables on that page. On the server, Node isn't on the terminal's `PATH`: scripts run after `source ~/nodevenv/backend-server/22/bin/activate && cd ~/backend-server`. Never suggest `npm ci`/`npm install` there (`node_modules` is a link into that environment); dependencies go in with the page's **Run NPM Install** button. After a frontend upload, the share pages need regenerating (restart the backend or `node scripts/regenerate.js`). `npm run smoke -- https://jordan-christensen.com` checks a deploy.
 
 ## Architecture
 

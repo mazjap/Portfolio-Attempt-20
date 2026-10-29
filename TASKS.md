@@ -195,9 +195,10 @@ All checked items were verified end to end in a scratch copy on October 29, 2026
   It hasn't run on GitHub yet; it runs after the next push.
 - [x] **Deployment templates** (S, #28):
   - `deploy/public_html.htaccess`: HTTPS, an optional www→bare redirect, both live legacy app-link forms, the `_meta` share-page rule, the SPA fallback, and caching headers.
-  - `deploy/backend.htaccess` (`SetEnv` placeholders) and `backend/.env.example`.
+  - `backend/.env.example`. (A `SetEnv` template, `deploy/backend.htaccess`, was removed later: the server sets environment variables on cPanel's Setup Node.js App page.)
   - `DEPLOY.md`: layout, steps, server commands, rollback, and backups.
   - `npm run smoke -- <url>`, a read-only post-deploy check. Against the live site today it confirms what's missing until this work is deployed: `/api/health`, `feed.xml`, JSON 404s, share pages, and image sizes.
+- [x] **Content snapshot** (S, added after the deploy): `npm run snapshot` backs up the live content (every project, post, and app page, the lists, and every image the content uses) with GETs only, into `~/Developer/portfolio-backups/<date>-live` plus a `.tgz`. App IDs come from the sitemap. The first run on October 29, 2026 found a fourth app, **Hyperline**, that the local data doesn't have. It's tested in `test/snapshot.test.ts`.
 - [x] **Configurable content root** (S, #28): `DATA_DIR`, `PUBLIC_DIR`, `MEDIA_DIR`, and `SITE_URL`.
 - [x] **Shared types** (M, #32): `frontend/src/types/index.ts` is now type-only re-exports of `backend/src/lib/types.ts`. Folio's Swift models are still separate.
 
@@ -221,6 +222,7 @@ Folio's own audit is `Folio/AUDIT.md` (numbers below like "Folio #3" refer to it
   - **Media:** the ID locks when an upload starts and stays locked in drafts (#11); uploads removed before saving are deleted, and failed cleanup is reported as "saved" and retried (#12); drag reordering works in both directions, with Move Up/Down (#13); thumbnails use the server's 640 px copies (#25).
   - **Other:** cancelled first loads retry (#7), Keychain saves update in place (#17), privacy-policy dates are saved as the day picked (#18), Dynamic Type and labels (#19), Highlight Changed Lines only where it works and alt text on inserted images (#20), the incoming-network entitlement is gone (#22), and "Remove from List" for apps (#25). The duplicate macOS Settings tab is gone.
 - [ ] **Send the version on save** (S, after **Conditional writes** in Backend): send the `updatedAt` the editor loaded, and on 409 keep the draft and offer to reload or compare.
+  - Give 409 its own handling while doing this. Today `URLProcessor` turns every 409 into `APIError.conflict`, which always says "A resource with that ID already exists." That's right for creating a duplicate, wrong for an upload that would overwrite a file (the server's message is "File already exists…"), and will be wrong for a stale save. Keep the server's `error` text for 409s too (like `httpError`), and treat a version conflict as its own case.
 - [ ] **App list from the server** (S, after **App index endpoint** in Backend): replace the UserDefaults list.
 - [ ] **Left from the Folio audit** (M):
   - One new-post (and new-project) draft per environment, so two windows creating posts at once share it (Folio #2). Fixing it needs a drafts list to find several.
@@ -232,9 +234,22 @@ Folio's own audit is `Folio/AUDIT.md` (numbers below like "Folio #3" refer to it
 - [ ] **Hikes tab** (M, Trail map feature): import a GPX file (from TrekPoint's share sheet or the Files app), preview it on a map, set a title and date, and upload it to the hikes API.
 - [ ] **Demo field** (S, "⌘R actually runs something" feature): edit a project's `demo` in the project form.
 
+## Ideas (not planned yet)
+
+Product suggestions from AUDIT.md that haven't been scheduled. The audit's advice: make the portfolio actionable (contact, flagship work) before adding authoring conveniences. Three of its other suggestions are already done: sharing metadata and static share pages, the integrity and health checks, and a safe authoring tool (Folio).
+
+- **Contact and GitHub links on Home, plus a footer** (S): today contact details are only on app support pages and behind the console's `contact` command. Optionally add a résumé link.
+- **Flagship project case studies** (M): one or two projects featured on Home with the role, the hard problem, design tradeoffs, screenshots or a demo, the outcome, and availability. Use concrete evidence and don't invent metrics.
+- **Drafts and publish state** (L): today creating content publishes it immediately (Folio's drafts are local only). An unpublished state on the server would need draft detail pages and their media protected too, not just hidden from the lists.
+- **Revisions and recoverable deletion** (M): keep previous versions of a record, and move deleted content (and its media) to a trash folder instead of removing it. `npm run snapshot` covers backups, not undo.
+- **Series navigation and related content** (M): `series` is only a label today. Add part ordering, previous/next links within a series, and links between related posts and projects.
+- **Blog reading aids** (S): a table of contents for long posts, and Copy buttons on code blocks if code-heavy posts warrant them. The RSS feed and heading links are done.
+- **Search and filters** (M, when there's more content): search, and category and status filters for projects. With 12 projects and 3 posts, tag filtering is enough for now.
+- **Larger image viewing** (S): a full-size viewer (lightbox) for gallery images, and captions shown under images. Gallery keyboard support and labels are done. Video stays URL-only.
+
 ## Testing and deploying (you)
 
-Nothing below has been tested by hand yet. It's all batched until Folio's changes are in (at least **Convert HEIC before uploading** and **Show server error messages**). Run the backend with `npm run dev` in `backend/`, and the frontend with `npm run dev` in `frontend/`.
+Nothing below has been tested by hand yet. Folio's prerequisites (HEIC conversion, server error messages) are done, so it can all be tested now. Run the backend with `npm run dev` in `backend/`, and the frontend with `npm run dev` in `frontend/`.
 
 ### Backend (phases 1–2)
 
@@ -308,18 +323,24 @@ With both dev servers running, open `http://localhost:5173`.
 
 ### Deploy (phases 1–5 together)
 
-Follow `DEPLOY.md`. In short:
+Deployed October 29, 2026. Checked items were confirmed against the live site with read-only requests (`npm run smoke` passed every required check).
 
-- [ ] Check the host's Node version first: sharp 0.35 needs 20.9 or later.
-- [ ] Merge `deploy/public_html.htaccess` into the live `~/public_html/.htaccess`, keeping cPanel's Passenger block. Decide whether to turn on the www→bare redirect.
-- [ ] **Backend:** `npm run build`, then upload `dist/` contents, `package.json`, and `package-lock.json` to `~/backend-server/`. Run `npm ci --omit=dev` there, and restart.
-- [ ] **Frontend:** `npm run build`, then upload `dist/` contents to `public_html/`. Then restart the backend again (or run `node scripts/regenerate.js`), so the share pages use the new `index.html`.
-- [ ] Once: run `node scripts/derive-media.js` in `~/backend-server`, to create the smaller sizes for existing images.
-- [ ] The first start replaces the old hand-written `public_html/sitemap.xml` (it lists `www.` URLs from the previous site), and the new `robots.txt` points at it. Download the old one first if you want to keep it.
-- [ ] Run `npm run smoke -- https://jordan-christensen.com` from `backend/`. Everything should PASS.
-- [ ] After deploying:
-  - Run `node scripts/check.js` in `~/backend-server`.
-  - Open an old app link (`/trekpoint-privacy`).
+- [x] Check the host's Node version first: sharp 0.35 needs 20.9 or later.
+- [x] Merge `deploy/public_html.htaccess` into the live `~/public_html/.htaccess`: the share-page rule and caching headers are live (HTML `no-cache`, `/assets` immutable). The www→bare redirect wasn't added, so both hosts still serve the site.
+- [x] **Backend:** `npm run build`, then upload `dist/` contents, `package.json`, and `package-lock.json` to `~/backend-server/`. Press **Run NPM Install** on the app's cPanel page, and restart.
+- [x] **Frontend:** `npm run build`, then upload `dist/` contents to `public_html/`. Then restart the backend again (or run `node scripts/regenerate.js`), so the share pages use the new `index.html`.
+- [x] Once: run `node scripts/derive-media.js` in `~/backend-server`, to create the smaller sizes for existing images. (148 files for 74 images.)
+  - On the server, first enter the app's Node environment: `source ~/nodevenv/backend-server/22/bin/activate && cd ~/backend-server` (the command at the top of cPanel's Setup Node.js App page). Node isn't on the normal `PATH`. Don't run `npm ci` there; use the page's **Run NPM Install** button.
+- [x] The first start replaces the old hand-written `public_html/sitemap.xml` (it lists `www.` URLs from the previous site), and the new `robots.txt` points at it. The old one is saved in the October 29 content snapshot (`~/Developer/portfolio-backups/2026-10-29-live/`).
+- [x] Run `npm run smoke -- https://jordan-christensen.com` from `backend/`. Everything passed; the one WARN (no smaller image sizes) goes away after `derive-media`.
+- [x] Run `node scripts/check.js` in `~/backend-server`. It found:
+  - a stale `projects/nav.json`, written by the old code before nav included `featured`: fixed with `node scripts/regenerate.js` on the server;
+  - the two missing heroes below (the only warnings left);
+  - two unused keyboard-build images and their new sizes: deleted.
+
+  The smoke test now passes with no warnings.
+- [ ] **Re-upload two hero images in Folio:** SwiftNES (`/media/projects/nes-emulator/hero.jpg`) and the SwiftUI Coordinator post (`/media/posts/swiftui-coordinator/hero.jpg`) point at files that aren't on the server, so they show broken images on the live site.
+- [ ] After deploying (the old app link redirect already passed the smoke test):
   - Paste a project URL into iMessage or Slack and check the preview.
   - Do one Folio edit and one upload against Prod.
 - [ ] Find out what Namecheap's backups (JetBackup or whatever the plan includes) cover, and how often. They should include `~/data/` and `public_html/media/`.

@@ -52,7 +52,8 @@ backend/
 │       ├── regenerate.ts     # npm run regen: rebuild indexes and site files, then exit
 │       ├── check.ts          # npm run check: read-only integrity report
 │       ├── derive-media.ts   # npm run media:derive: create missing 640/1280 px image sizes
-│       └── smoke.ts          # npm run smoke -- <url>: read-only checks against a deployed site
+│       ├── smoke.ts          # npm run smoke -- <url>: read-only checks against a deployed site
+│       └── snapshot.ts       # npm run snapshot: back up the live content with GETs (lib/snapshot.ts)
 ├── test/                     # node:test + supertest (npm test); each file runs against temp dirs
 ├── data/
 │   ├── projects/             # One JSON file per project + index.json + nav.json
@@ -159,7 +160,7 @@ All write operations (POST, PUT, DELETE) require a `Bearer` token:
 Authorization: Bearer <API_SECRET>
 ```
 
-`API_SECRET` is read from the environment (`.env` file locally, `.htaccess` `SetEnv` directive on cPanel). The `authenticate` middleware in `src/middleware/auth.ts` checks the header and returns 401 if missing or incorrect. GET routes are always public.
+`API_SECRET` is read from the environment (`.env` file locally, an environment variable on cPanel's Setup Node.js App page in production). The `authenticate` middleware in `src/middleware/auth.ts` checks the header and returns 401 if missing or incorrect. GET routes are always public.
 
 ---
 
@@ -435,7 +436,7 @@ The share images use the 1280 px size when it exists. The site's canonical host 
 | `PUBLIC_DIR` | — | Web root (see Path Resolution) |
 | `MEDIA_DIR` | — | Media directory (see Path Resolution) |
 
-Locally, set these in `backend/.env` (gitignored; template: `.env.example`). On cPanel, set them with `SetEnv` directives in `.htaccess` (template: `../deploy/backend.htaccess`).
+Locally, set these in `backend/.env` (gitignored; template: `.env.example`). On the server, set them as environment variables on cPanel's Setup Node.js App page (see `../DEPLOY.md`). They reach the running app, not the cPanel terminal, and the scripts don't need them.
 
 ---
 
@@ -450,6 +451,7 @@ npm run regen         # one-shot: regenerate indexes, sitemap, feed, and share p
 npm run check         # read-only integrity report (bad records, stale indexes, missing/orphaned media)
 npm run media:derive  # create missing 640/1280 px image sizes (-- --dry-run to preview)
 npm run smoke -- https://jordan-christensen.com   # read-only checks against a deployed site
+npm run snapshot      # back up the live content (GETs only) to ~/Developer/portfolio-backups/<date>-live(.tgz)
 npm run build         # tsc — compile to dist/ for deployment
 ```
 
@@ -464,6 +466,7 @@ The dev server runs on port 3001. The frontend Vite dev server proxies `/api` an
 - `media`: orientation, names, sizes, the 2560 px cap, animation, format checks, delete containment.
 - `site`: sitemap, feed, share pages, escaping.
 - `bootstrap`: first run from nothing.
+- `snapshot`: the content backup against a running local server (app IDs from the sitemap, legacy media names, missing files).
 
 Add a regression test with every fix. CI (`.github/workflows/ci.yml`) runs the type-check, tests, build, and audit.
 
@@ -471,4 +474,4 @@ Add a regression test with every fix. CI (`.github/workflows/ci.yml`) runs the t
 
 ## Deployment (cPanel / Phusion Passenger)
 
-See [`../DEPLOY.md`](../DEPLOY.md): the server layout, `.htaccess` and `SetEnv` templates, the step-by-step deploy, commands to run on the server, rollback, and backups. The `public_html/media/` directory is served directly by LiteSpeed/Apache as static files; the Node process doesn't serve media in production.
+See [`../DEPLOY.md`](../DEPLOY.md): the server layout, the Node app's cPanel settings, the copy of the live `.htaccess`, the step-by-step deploy, running scripts on the server (Node lives in a cPanel-managed environment), rollback, and backups. The `public_html/media/` directory is served directly by LiteSpeed/Apache as static files; the Node process doesn't serve media in production.
