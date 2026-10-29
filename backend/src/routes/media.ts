@@ -1,11 +1,14 @@
 import { Router, Request, Response } from 'express';
-import { join } from 'path';
-import { access, unlink, mkdir } from 'fs/promises';
+import { unlink, mkdir } from 'fs/promises';
 import os from 'os';
 import multer from 'multer';
-import sharp from 'sharp';
+import sharp, { type Metadata } from 'sharp';
 import { authenticate } from '../middleware/auth.js';
-import { mediaDir } from '../lib/files.js';
+import { validParam } from '../middleware/validateParams.js';
+import { fileExists, mediaDir } from '../lib/files.js';
+import { derivativePaths, isDerivative, MAX_PIXELS, writeImageSet } from '../lib/images.js';
+import { withLock } from '../lib/lock.js';
+import { isValidContentId, isValidMediaFilename, resolveInside, safeMediaBaseName } from '../lib/paths.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
@@ -27,17 +30,44 @@ const VALID_MIME_TYPES = [
   'image/heif',
 ];
 
-async function fileExists(filePath: string): Promise<boolean> {
+// Formats sharp reports for files it can decode. AVIF is reported as `heif` with AV1 compression;
+// HEIC (`heif` with HEVC compression) needs a decoder that prebuilt sharp binaries don't include.
+const DECODABLE_FORMATS = new Set(['jpeg', 'png', 'webp', 'gif', 'heif']);
+const MAX_FRAMES = 500;
+
+type Inspection =
+  | { ok: true; animated: boolean }
+  | { ok: false; status: number; error: string };
+
+/** Checks what the file actually is, rather than trusting the MIME type the client sent. */
+async function inspect(path: string): Promise<Inspection> {
+  let meta: Metadata;
   try {
-    await access(filePath);
-    return true;
+    meta = await sharp(path, { limitInputPixels: MAX_PIXELS }).metadata();
   } catch {
-    return false;
+    return { ok: false, status: 400, error: "The file isn't a readable image" };
   }
+  if (meta.format === 'heif' && meta.compression !== 'av1') {
+    return { ok: false, status: 415, error: "HEIC images can't be converted on this server. Convert to JPEG or PNG before uploading." };
+  }
+  if (!meta.format || !DECODABLE_FORMATS.has(meta.format)) {
+    return { ok: false, status: 415, error: `Unsupported image format: ${meta.format ?? 'unknown'}` };
+  }
+  const pages = meta.pages ?? 1;
+  if (pages > MAX_FRAMES) return { ok: false, status: 400, error: `Animations can have at most ${MAX_FRAMES} frames` };
+  if ((meta.width ?? 0) * (meta.pageHeight ?? meta.height ?? 0) > MAX_PIXELS) {
+    return { ok: false, status: 400, error: 'Image dimensions are too large' };
+  }
+  return { ok: true, animated: pages > 1 && (meta.format === 'gif' || meta.format === 'webp') };
 }
+
+router.param('id', validParam('id', isValidContentId));
+router.param('filename', validParam('filename', isValidMediaFilename));
 
 const upload = multer({
   dest: os.tmpdir(),
+  // Clients (curl, URLSession) send filenames as raw UTF-8; busboy's default would read them as latin1.
+  defParamCharset: 'utf8',
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (VALID_MIME_TYPES.includes(file.mimetype)) {
@@ -89,34 +119,51 @@ router.post('/upload', authenticate, async (req, res) => {
       return;
     }
 
-    if (!id || typeof id !== 'string') {
+    if (!isValidContentId(id)) {
       await unlink(req.file.path);
-      logger.warn('Upload failed: missing id');
-      res.status(400).json({ error: 'id is required' });
+      logger.warn(`Upload failed: invalid id ${JSON.stringify(id)}`);
+      res.status(400).json({ error: 'id must be the lowercase slug of a project or post' });
       return;
     }
 
-    const baseName = req.file.originalname.replace(/\.[^.]+$/, '');
+    const baseName = safeMediaBaseName(req.file.originalname);
+    if (!baseName) {
+      await unlink(req.file.path);
+      logger.warn(`Upload failed: unusable filename ${JSON.stringify(req.file.originalname)}`);
+      res.status(400).json({ error: 'Filename must contain letters or digits' });
+      return;
+    }
     const outputFilename = `${baseName}.webp`;
-    const destDir = join(mediaDir, context, id);
-    await mkdir(destDir, { recursive: true });
-    const destPath = join(destDir, outputFilename);
+    const destDir = resolveInside(mediaDir, context, id);
+    const destPath = resolveInside(destDir, outputFilename);
+    const uploadPath = req.file.path;
 
-    if (!overwrite && await fileExists(destPath)) {
-      await unlink(req.file.path);
-      logger.warn(`Upload rejected: ${context}/${id}/${outputFilename} already exists`);
-      res.status(409).json({ error: 'File already exists. Send overwrite: true to replace it.' });
+    const inspection = await inspect(uploadPath);
+    if (!inspection.ok) {
+      await unlink(uploadPath);
+      logger.warn(`Upload rejected (${req.file.originalname}): ${inspection.error}`);
+      res.status(inspection.status).json({ error: inspection.error });
       return;
     }
 
-    await sharp(req.file.path, { animated: req.file.mimetype === 'image/gif' })
-      .webp({ quality: 85 })
-      .toFile(destPath);
+    // One conversion at a time: bounds CPU and memory, and makes the exists-check and write atomic.
+    await withLock('media', async () => {
+      await mkdir(destDir, { recursive: true });
+      if (!overwrite && await fileExists(destPath)) {
+        await unlink(uploadPath);
+        logger.warn(`Upload rejected: ${context}/${id}/${outputFilename} already exists`);
+        res.status(409).json({ error: 'File already exists. Send overwrite: true to replace it.' });
+        return;
+      }
 
-    await unlink(req.file.path);
+      // Main image (at most 2560 px) plus 640/1280 px widths, staged and renamed into place, so a
+      // failed conversion never replaces a good file.
+      await writeImageSet(uploadPath, destPath, inspection.animated);
+      await unlink(uploadPath);
 
-    logger.info(`Uploaded media: ${context}/${id}/${outputFilename}`);
-    res.json({ url: `/media/${context}/${id}/${outputFilename}` });
+      logger.info(`Uploaded media: ${context}/${id}/${outputFilename}`);
+      res.json({ url: `/media/${context}/${id}/${outputFilename}` });
+    });
   } catch (err) {
     if (req.file) await unlink(req.file.path).catch(() => {});
     logger.error(`Failed to upload media: ${err}`);
@@ -131,14 +178,20 @@ router.delete('/:context/:id/:filename', authenticate, async (req, res) => {
       res.status(400).json({ error: 'context must be "projects" or "posts"' });
       return;
     }
-    const filePath = join(mediaDir, context, id, filename);
-    if (!await fileExists(filePath)) {
-      res.status(404).json({ error: 'File not found' });
-      return;
-    }
-    await unlink(filePath);
-    logger.info(`Deleted media: ${context}/${id}/${filename}`);
-    res.json({ success: true });
+    const filePath = resolveInside(mediaDir, context, id, filename);
+    await withLock('media', async () => {
+      if (!await fileExists(filePath)) {
+        res.status(404).json({ error: 'File not found' });
+        return;
+      }
+      await unlink(filePath);
+      // Deleting an image also deletes its smaller widths.
+      if (!isDerivative(filePath)) {
+        await Promise.all(derivativePaths(filePath).map(p => unlink(p).catch(() => {})));
+      }
+      logger.info(`Deleted media: ${context}/${id}/${filename}`);
+      res.json({ success: true });
+    });
   } catch (err) {
     logger.error(`Failed to delete media ${req.params.context}/${req.params.id}/${req.params.filename}: ${err}`);
     res.status(500).json({ error: 'Internal server error' });

@@ -1,28 +1,34 @@
 import { Router } from 'express';
 import { join } from 'path';
-import { access, unlink } from 'fs/promises';
+import { unlink } from 'fs/promises';
 import { authenticate } from '../middleware/auth.js';
-import { readJSON, writeJSON, projectsDir } from '../lib/files.js';
+import { validParam } from '../middleware/validateParams.js';
+import { readJSON, writeJSON, fileExists, projectsDir } from '../lib/files.js';
+import { withLock } from '../lib/lock.js';
+import { isValidContentId, resolveInside } from '../lib/paths.js';
 import { regenerateProjects } from '../lib/regenerate.js';
+import { applyUpdate, formatErrors, parse, projectSchema } from '../lib/schemas.js';
 import { logger } from '../lib/logger.js';
+import { refreshSiteFiles } from '../lib/site.js';
 import type { ProjectDetail, ProjectPreview, ProjectNav } from '../lib/types.js';
 
 const router = Router();
 
-async function fileExists(filePath: string): Promise<boolean> {
+router.param('id', validParam('id', isValidContentId));
+
+/** Regenerates the index, nav, and site files after a write that has already been saved. A failure here doesn't undo the save, so it's logged rather than reported as a failed request. */
+async function regenerateAfterWrite(action: string): Promise<void> {
   try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
+    await regenerateProjects();
+  } catch (err) {
+    logger.error(`${action} was saved, but regenerating the projects index failed (run npm run regen): ${err}`);
   }
+  await refreshSiteFiles(`${action} was saved`);
 }
 
 router.get('/', async (_req, res) => {
   try {
-    const index = await readJSON<ProjectPreview[]>(join(projectsDir, 'index.json'));
-    logger.info('Listed projects');
-    res.json(index);
+    res.json(await readJSON<ProjectPreview[]>(join(projectsDir, 'index.json')));
   } catch (err) {
     logger.error(`Failed to list projects: ${err}`);
     res.status(500).json({ error: 'Internal server error' });
@@ -31,9 +37,7 @@ router.get('/', async (_req, res) => {
 
 router.get('/nav', async (_req, res) => {
   try {
-    const nav = await readJSON<ProjectNav[]>(join(projectsDir, 'nav.json'));
-    logger.info('Listed projects nav');
-    res.json(nav);
+    res.json(await readJSON<ProjectNav[]>(join(projectsDir, 'nav.json')));
   } catch (err) {
     logger.error(`Failed to list projects nav: ${err}`);
     res.status(500).json({ error: 'Internal server error' });
@@ -42,15 +46,12 @@ router.get('/nav', async (_req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const filePath = join(projectsDir, `${req.params.id}.json`);
+    const filePath = resolveInside(projectsDir, `${req.params.id}.json`);
     if (!await fileExists(filePath)) {
-      logger.warn(`Project not found: ${req.params.id}`);
       res.status(404).json({ error: 'Project not found' });
       return;
     }
-    const project = await readJSON<ProjectDetail>(filePath);
-    logger.info(`Fetched project: ${req.params.id}`);
-    res.json(project);
+    res.json(await readJSON<ProjectDetail>(filePath));
   } catch (err) {
     logger.error(`Failed to fetch project ${req.params.id}: ${err}`);
     res.status(500).json({ error: 'Internal server error' });
@@ -59,23 +60,33 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', authenticate, async (req, res) => {
   try {
-    const project = req.body as ProjectDetail;
-    if (!project.id || !project.tagline) {
-      logger.warn('Create project failed: missing id or tagline');
-      res.status(400).json({ error: 'id and tagline are required' });
+    const id = (req.body as { id?: unknown } | undefined)?.id;
+    if (!isValidContentId(id)) {
+      logger.warn(`Create project failed: invalid id ${JSON.stringify(id)}`);
+      res.status(400).json({ error: 'id is required and must be a lowercase slug (letters, digits, hyphens) other than "index" or "nav"' });
       return;
     }
-    const filePath = join(projectsDir, `${project.id}.json`);
-    if (await fileExists(filePath)) {
-      logger.warn(`Create project failed: ${project.id} already exists`);
-      res.status(409).json({ error: 'Project already exists' });
+    const parsed = parse(projectSchema, req.body, 'create');
+    if (!parsed.ok) {
+      logger.warn(`Create project ${id} failed: ${parsed.errors.join('; ')}`);
+      res.status(400).json({ error: formatErrors('project', parsed.errors) });
       return;
     }
-    project.createdAt ??= new Date().toISOString();
-    await writeJSON(filePath, project);
-    await regenerateProjects();
-    logger.info(`Created project: ${project.id}`);
-    res.status(201).json(project);
+    if (parsed.ignored.length) logger.warn(`Create project ${id}: ignored unknown fields ${parsed.ignored.join(', ')}`);
+
+    await withLock('projects', async () => {
+      const filePath = resolveInside(projectsDir, `${id}.json`);
+      if (await fileExists(filePath)) {
+        logger.warn(`Create project failed: ${id} already exists`);
+        res.status(409).json({ error: 'Project already exists' });
+        return;
+      }
+      const project = { id, ...parsed.value } as ProjectDetail;
+      await writeJSON(filePath, project);
+      await regenerateAfterWrite(`Creating project ${id}`);
+      logger.info(`Created project: ${id}`);
+      res.status(201).json(project);
+    });
   } catch (err) {
     logger.error(`Failed to create project: ${err}`);
     res.status(500).json({ error: 'Internal server error' });
@@ -83,39 +94,53 @@ router.post('/', authenticate, async (req, res) => {
 });
 
 router.put('/:id', authenticate, async (req, res) => {
+  const { id } = req.params;
   try {
-    const filePath = join(projectsDir, `${req.params.id}.json`);
-    if (!await fileExists(filePath)) {
-      logger.warn(`Update project failed: ${req.params.id} not found`);
-      res.status(404).json({ error: 'Project not found' });
+    const parsed = parse(projectSchema, req.body, 'update');
+    if (!parsed.ok) {
+      logger.warn(`Update project ${id} failed: ${parsed.errors.join('; ')}`);
+      res.status(400).json({ error: formatErrors('project', parsed.errors) });
       return;
     }
-    const existing = await readJSON<ProjectDetail>(filePath);
-    const updated: ProjectDetail = { ...existing, ...req.body, updatedAt: new Date().toISOString() };
-    await writeJSON(filePath, updated);
-    await regenerateProjects();
-    logger.info(`Updated project: ${req.params.id}`);
-    res.json(updated);
+    if (parsed.ignored.length) logger.warn(`Update project ${id}: ignored unknown fields ${parsed.ignored.join(', ')}`);
+
+    await withLock('projects', async () => {
+      const filePath = resolveInside(projectsDir, `${id}.json`);
+      if (!await fileExists(filePath)) {
+        logger.warn(`Update project failed: ${id} not found`);
+        res.status(404).json({ error: 'Project not found' });
+        return;
+      }
+      const existing = await readJSON<ProjectDetail>(filePath);
+      const updated = { ...applyUpdate(existing, parsed), id, updatedAt: new Date().toISOString() };
+      await writeJSON(filePath, updated);
+      await regenerateAfterWrite(`Updating project ${id}`);
+      logger.info(`Updated project: ${id}`);
+      res.json(updated);
+    });
   } catch (err) {
-    logger.error(`Failed to update project ${req.params.id}: ${err}`);
+    logger.error(`Failed to update project ${id}: ${err}`);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 router.delete('/:id', authenticate, async (req, res) => {
+  const { id } = req.params;
   try {
-    const filePath = join(projectsDir, `${req.params.id}.json`);
-    if (!await fileExists(filePath)) {
-      logger.warn(`Delete project failed: ${req.params.id} not found`);
-      res.status(404).json({ error: 'Project not found' });
-      return;
-    }
-    await unlink(filePath);
-    await regenerateProjects();
-    logger.info(`Deleted project: ${req.params.id}`);
-    res.json({ success: true });
+    await withLock('projects', async () => {
+      const filePath = resolveInside(projectsDir, `${id}.json`);
+      if (!await fileExists(filePath)) {
+        logger.warn(`Delete project failed: ${id} not found`);
+        res.status(404).json({ error: 'Project not found' });
+        return;
+      }
+      await unlink(filePath);
+      await regenerateAfterWrite(`Deleting project ${id}`);
+      logger.info(`Deleted project: ${id}`);
+      res.json({ success: true });
+    });
   } catch (err) {
-    logger.error(`Failed to delete project ${req.params.id}: ${err}`);
+    logger.error(`Failed to delete project ${id}: ${err}`);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
