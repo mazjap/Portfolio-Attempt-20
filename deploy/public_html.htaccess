@@ -1,0 +1,52 @@
+# Template for ~/public_html/.htaccess (LiteSpeed/Apache on Namecheap cPanel).
+#
+# Reconcile with the live file rather than replacing it: cPanel's "Setup Node.js App" writes its own
+# Passenger block (between "DO NOT EDIT" markers) for the backend; keep that block exactly as it is.
+# Nothing here contains secrets; those go in the backend's SetEnv block (backend.htaccess).
+
+RewriteEngine On
+
+# ── HTTPS ───────────────────────────────────────────────────────────────────
+RewriteCond %{HTTPS} off
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Optional: one canonical host. Share pages and the sitemap use SITE_URL (no www), and both hosts
+# currently serve the site. Uncomment to send www to the bare domain.
+# RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+# RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
+
+# ── API and media ───────────────────────────────────────────────────────────
+# /api is the Node app (routed by cPanel's Passenger block); /media is static files. Never rewrite them.
+RewriteRule ^(api|media)(/|$) - [L]
+
+# ── Legacy app links (from before /apps/...) ────────────────────────────────
+# /<app>/privacy-policy and /<app>/support → /apps/<app>/...
+RewriteCond %{REQUEST_URI} !^/(apps|projects|blog)/
+RewriteRule ^([a-z0-9-]+)/(privacy-policy|support)/?$ /apps/$1/$2 [L,R=301]
+# /<app>-privacy and /<app>-support → /apps/<app>/...
+RewriteRule ^([a-z0-9-]+)-privacy/?$ /apps/$1/privacy-policy [L,R=301]
+RewriteRule ^([a-z0-9-]+)-support/?$ /apps/$1/support [L,R=301]
+
+# ── Share pages ─────────────────────────────────────────────────────────────
+# The backend writes _meta/<path>.html (the app's index.html with that page's title, description, and
+# Open Graph tags) for projects, posts, app pages, and the two list pages. Serve it when it exists, so
+# link previews work; the browser URL doesn't change, and the page boots the app as usual.
+RewriteCond %{DOCUMENT_ROOT}/_meta/$1.html -f
+RewriteRule ^((?:projects|blog)(?:/[a-z0-9-]+)?|apps/[a-z0-9-]+/(?:privacy-policy|support))/?$ /_meta/$1.html [L]
+
+# ── Single-page app fallback ────────────────────────────────────────────────
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ /index.html [L]
+
+# ── Caching ─────────────────────────────────────────────────────────────────
+# HTML (index.html and share pages) must revalidate so a deploy is picked up immediately; the hashed
+# files in /assets never change, so they can be cached for a year.
+<IfModule mod_headers.c>
+  <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|css)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>
