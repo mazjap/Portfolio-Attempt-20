@@ -27,6 +27,7 @@ export interface ProjectNav {
   id: string;
   title: string;
   status: 'active' | 'in-progress' | 'archived';
+  featured?: boolean;
 }
 
 export interface PostPreview {

@@ -58,6 +58,13 @@ export default function ProjectCard({ project }: Props) {
             <Minimap seed={project.id} rows={20} />
           </div>
         )}
+
+        {/* Featured star badge */}
+        {project.featured && (
+          <div className="absolute top-2 right-2 z-10 pointer-events-none">
+            <span className="text-yellow-400 text-lg leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" aria-label="Featured">★</span>
+          </div>
+        )}
       </div>
 
       {/* Content */}

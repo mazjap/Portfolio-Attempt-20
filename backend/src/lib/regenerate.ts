@@ -14,7 +14,11 @@ export async function regenerateProjects(): Promise<void> {
     ids.map(id => readJSON<ProjectDetail>(join(projectsDir, `${id}.json`)))
   );
 
-  projects.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const date = (p: ProjectDetail) => new Date(p.updatedAt ?? p.createdAt).getTime();
+  projects.sort((a, b) => {
+    if (a.featured !== b.featured) return a.featured ? -1 : 1;
+    return date(b) - date(a);
+  });
 
   const index: ProjectPreview[] = projects.map(({ id, title, tagline, heroImage, category, status, featured, createdAt, updatedAt }) => ({
     id, title, tagline, heroImage, status, featured, createdAt,
@@ -22,7 +26,7 @@ export async function regenerateProjects(): Promise<void> {
     ...(updatedAt && { updatedAt }),
   }));
 
-  const nav: ProjectNav[] = projects.map(({ id, title, status }) => ({ id, title, status }));
+  const nav: ProjectNav[] = projects.map(({ id, title, status, featured }) => ({ id, title, status, ...(featured && { featured }) }));
 
   await Promise.all([
     writeJSON(join(projectsDir, 'index.json'), index),

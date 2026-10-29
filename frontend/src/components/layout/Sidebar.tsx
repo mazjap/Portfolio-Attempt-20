@@ -54,6 +54,9 @@ export default function Sidebar({ type, items, loading }: Props) {
                 <StatusBadge status={(item as ProjectNav).status} />
               )}
               <span className="truncate text-xs leading-5">{item.title}</span>
+              {type === 'projects' && (item as ProjectNav).featured && (
+                <span className="ml-auto flex-shrink-0 text-yellow-400 text-[11px] leading-none">★</span>
+              )}
             </Link>
           );
         })}
