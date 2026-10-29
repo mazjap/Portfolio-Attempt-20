@@ -28,6 +28,10 @@ export default function ProjectGrid({ projects, loading }: Props) {
     );
   }
 
+  if (projects.length === 0) {
+    return <p className="text-xcode-muted font-mono text-sm">No projects yet. Check back soon.</p>;
+  }
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {projects.map(p => (

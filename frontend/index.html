@@ -4,14 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Jordan Christensen" />
-    <title>Jordan</title>
+    <meta name="description" content="iOS developer, tinkerer, and open-source advocate. Projects, a build-log blog, and app support pages." />
+    <title>Jordan Christensen</title>
+    <link rel="alternate" type="application/rss+xml" title="Jordan Christensen · Blog" href="/feed.xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <script>
       (function () {
-        const saved = localStorage.getItem('theme');
+        var saved = null;
+        try {
+          saved = localStorage.getItem('theme');
+        } catch (e) {
+          // Storage unavailable (some private modes): fall back to the system setting.
+        }
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         if (saved === 'dark' || (!saved && prefersDark)) {
           document.documentElement.classList.add('dark');

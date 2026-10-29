@@ -1,41 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useProjectNav } from '../../hooks/useProjects';
+import { usePostNav } from '../../hooks/usePosts';
+import { prefersReducedMotion } from '../../lib/motion';
 
 interface Line {
   type: 'input' | 'output' | 'error';
   text: string;
 }
 
-type ConsoleMode = 'float' | 'minimized' | 'fullscreen';
+type ConsoleMode = 'float' | 'fullscreen';
 
 const HOME_PATH = '/Users/Jordan/Developer/definitely-final-portfolio-v3-REAL';
-
-const CONSOLE_NAV_KEY = 'console-nav-cache';
-const CONSOLE_NAV_TTL = 24 * 60 * 60 * 1000;
-
-interface NavCacheData {
-  projectIds: string[];
-  postIds: string[];
-  ts: number;
-}
-
-function loadNavCache(): NavCacheData | null {
-  try {
-    const raw = localStorage.getItem(CONSOLE_NAV_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw) as NavCacheData;
-    if (Date.now() - data.ts > CONSOLE_NAV_TTL) return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-function saveNavCache(projectIds: string[], postIds: string[]): void {
-  try {
-    localStorage.setItem(CONSOLE_NAV_KEY, JSON.stringify({ projectIds, postIds, ts: Date.now() }));
-  } catch {}
-}
 
 function getTabCandidates(input: string, cwd: string, projectIds: string[], postIds: string[]): string[] {
   if (!input) {
@@ -64,43 +40,33 @@ export default function Console() {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ConsoleMode>('float');
   const [cwd, setCwd] = useState('');
-  const [projectIds, setProjectIds] = useState<string[]>([]);
-  const [postIds, setPostIds] = useState<string[]>([]);
+  // The same cached nav lists the sidebar uses; nothing is fetched until the console is opened.
+  const { nav: projectNav } = useProjectNav({ enabled: open });
+  const { nav: postNav } = usePostNav({ enabled: open });
+  const projectIds = (projectNav ?? []).map(p => p.id);
+  const postIds = (postNav ?? []).map(p => p.id);
   const [lines, setLines] = useState<Line[]>([{ type: 'output', text: 'Type "help" for available commands.' }]);
   const [input, setInput] = useState('');
   const [history, setHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
 
-  // Fetch and cache nav IDs (24-hour TTL)
   useEffect(() => {
-    const cached = loadNavCache();
-    if (cached) {
-      setProjectIds(cached.projectIds);
-      setPostIds(cached.postIds);
-      return;
-    }
-    Promise.all([
-      fetch('/api/projects/nav').then(r => r.ok ? r.json() : []),
-      fetch('/api/posts/nav').then(r => r.ok ? r.json() : []),
-    ]).then(([projects, posts]) => {
-      const pIds = (projects as Array<{ id: string }>).map(p => p.id);
-      const bIds = (posts as Array<{ id: string }>).map(p => p.id);
-      setProjectIds(pIds);
-      setPostIds(bIds);
-      saveNavCache(pIds, bIds);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
   }, [lines]);
 
   useEffect(() => {
-    if (open && mode !== 'minimized') inputRef.current?.focus();
+    if (open) inputRef.current?.focus();
   }, [open, mode]);
+
+  /** Closes the console and puts focus back on the button that opens it. */
+  const close = useCallback(() => {
+    setOpen(false);
+    toggleRef.current?.focus();
+  }, []);
 
   const push = useCallback((text: string, type: Line['type'] = 'output') => {
     setLines(prev => [...prev, { type, text }]);
@@ -244,6 +210,7 @@ export default function Console() {
       push('  cd <dir>            — change directory (projects, posts, ..)');
       push('  open <id>           — navigate to a project or post');
       push('  open .              — open current directory');
+      push('  (Tab completes commands and names; Esc closes)');
       push('  whoami              — about jordan christensen');
       push('  contact             — contact info');
       push('  clear               — clear console');
@@ -275,7 +242,8 @@ export default function Console() {
       const idx = Math.max(historyIdx - 1, -1);
       setHistoryIdx(idx);
       setInput(idx === -1 ? '' : history[idx]);
-    } else if (e.key === 'Tab') {
+    } else if (e.key === 'Tab' && !e.shiftKey && input !== '') {
+      // Completion only with something typed: Shift+Tab, or Tab on an empty line, moves focus as usual.
       e.preventDefault();
       const candidates = getTabCandidates(input, cwd, projectIds, postIds);
       if (candidates.length === 1) {
@@ -284,7 +252,7 @@ export default function Console() {
         push(candidates.join('    '));
       }
     } else if (e.key === 'Escape') {
-      setOpen(false);
+      close();
     }
   }
 
@@ -302,81 +270,89 @@ export default function Console() {
     : 'fixed bottom-16 right-4 z-50 w-[480px] max-w-[calc(100vw-2rem)] rounded-xl animate-slide-up';
 
   const outputHeightCls = mode === 'fullscreen' ? 'h-[40vh]' : 'h-64';
+  const trafficLightCls = 'w-3 h-3 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-xcode-accent';
 
   return (
     <>
       <button
+        ref={toggleRef}
         onClick={() => setOpen(o => !o)}
-        className="fixed bottom-4 right-4 z-50 w-9 h-9 rounded-lg bg-xcode-surface dark:bg-xcode-surface border border-xcode-border-light dark:border-xcode-border flex items-center justify-center text-xcode-muted hover:text-xcode-accent hover:border-xcode-accent transition-all shadow-lg font-mono text-xs"
+        className="xcode-dark-tokens fixed bottom-4 right-4 z-50 w-9 h-9 rounded-lg bg-xcode-surface dark:bg-xcode-surface border border-xcode-border-light dark:border-xcode-border flex items-center justify-center text-xcode-muted hover:text-xcode-accent hover:border-xcode-accent transition-all shadow-lg font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-xcode-accent"
         title="Open console"
-        aria-label="Toggle developer console"
+        aria-label="Developer console"
+        aria-expanded={open}
+        aria-controls="developer-console"
       >
         &gt;_
       </button>
 
       {open && (
-        <div className={`overflow-hidden shadow-2xl border border-xcode-border-light dark:border-xcode-border ${positionCls}`}>
+        <div
+          id="developer-console"
+          role="dialog"
+          aria-label="Developer console"
+          className={`xcode-dark-tokens overflow-hidden shadow-2xl border border-xcode-border-light dark:border-xcode-border ${positionCls}`}
+        >
           <div className="bg-xcode-sidebar-light dark:bg-xcode-sidebar px-3 py-2 flex items-center gap-2 border-b border-xcode-border-light dark:border-xcode-border select-none">
             <div className="flex gap-1.5">
               <button
-                onClick={() => setOpen(false)}
-                className="w-3 h-3 rounded-full bg-[#FF5F57] hover:bg-[#ff3b30] transition-colors focus:outline-none"
-                aria-label="Close"
+                onClick={close}
+                className={`${trafficLightCls} bg-[#FF5F57] hover:bg-[#ff3b30]`}
+                aria-label="Close console"
               />
               <button
-                onClick={() => setOpen(false)}
-                className="w-3 h-3 rounded-full bg-[#FEBC2E] hover:bg-[#FFB340] transition-colors focus:outline-none"
-                aria-label="Dismiss"
+                onClick={close}
+                className={`${trafficLightCls} bg-[#FEBC2E] hover:bg-[#FFB340]`}
+                aria-label="Minimize console"
               />
               <button
                 onClick={() => setMode(m => m === 'fullscreen' ? 'float' : 'fullscreen')}
-                className="w-3 h-3 rounded-full bg-[#28C840] hover:bg-[#34c759] transition-colors focus:outline-none"
-                aria-label={mode === 'fullscreen' ? 'Exit fullscreen' : 'Fullscreen'}
+                className={`${trafficLightCls} bg-[#28C840] hover:bg-[#34c759]`}
+                aria-label={mode === 'fullscreen' ? 'Exit full width' : 'Full width'}
+                aria-pressed={mode === 'fullscreen'}
               />
             </div>
             <span className="text-xs font-mono text-xcode-muted ml-2">Terminal — zsh</span>
           </div>
 
-          {mode !== 'minimized' && (
-            <>
+          <div
+            className={`bg-[#1d1f21] ${outputHeightCls} overflow-y-auto p-3 font-mono text-xs leading-5 cursor-text`}
+            onClick={handleOutputClick}
+            role="log"
+            aria-live="polite"
+          >
+            {lines.map((line, i) => (
               <div
-                className={`bg-[#1d1f21] ${outputHeightCls} overflow-y-auto p-3 font-mono text-xs leading-5 cursor-text`}
-                onClick={handleOutputClick}
+                key={i}
+                className={
+                  line.type === 'input'
+                    ? 'text-xcode-accent'
+                    : line.type === 'error'
+                    ? 'text-xcode-red'
+                    : 'text-xcode-text'
+                }
               >
-                {lines.map((line, i) => (
-                  <div
-                    key={i}
-                    className={
-                      line.type === 'input'
-                        ? 'text-xcode-accent'
-                        : line.type === 'error'
-                        ? 'text-xcode-red'
-                        : 'text-xcode-text'
-                    }
-                  >
-                    {line.text || <span>&nbsp;</span>}
-                  </div>
-                ))}
-                <div ref={bottomRef} />
+                {line.text || <span>&nbsp;</span>}
               </div>
+            ))}
+            <div ref={bottomRef} />
+          </div>
 
-              <div className="bg-[#1d1f21] border-t border-xcode-border flex items-center px-3 py-2 gap-2">
-                <span className="font-mono text-xs text-xcode-green flex-shrink-0 whitespace-nowrap">
-                  {promptPath}&nbsp;$
-                </span>
-                <input
-                  ref={inputRef}
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={handleKey}
-                  className="flex-1 bg-transparent font-mono text-xs text-xcode-text outline-none caret-xcode-accent min-w-0"
-                  spellCheck={false}
-                  autoComplete="off"
-                  aria-label="Console input"
-                />
-              </div>
-            </>
-          )}
+          <div className="bg-[#1d1f21] border-t border-xcode-border flex items-center px-3 py-2 gap-2 focus-within:ring-1 focus-within:ring-inset focus-within:ring-xcode-accent/60">
+            <span className="font-mono text-xs text-xcode-green flex-shrink-0 whitespace-nowrap">
+              {promptPath}&nbsp;$
+            </span>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              className="flex-1 bg-transparent font-mono text-xs text-xcode-text outline-none caret-xcode-accent min-w-0"
+              spellCheck={false}
+              autoComplete="off"
+              aria-label="Console input"
+            />
+          </div>
         </div>
       )}
     </>

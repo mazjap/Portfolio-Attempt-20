@@ -30,8 +30,9 @@ export default function PostList({ posts, loading }: Props) {
     }
   }
 
-  const allTags = [...new Set(posts.flatMap(p => p.tags))].sort();
-  const filtered = activeTag ? posts.filter(p => p.tags.includes(activeTag)) : posts;
+  const tagsOf = (p: PostPreview) => (Array.isArray(p.tags) ? p.tags : []);
+  const allTags = [...new Set(posts.flatMap(tagsOf))].sort();
+  const filtered = activeTag ? posts.filter(p => tagsOf(p).includes(activeTag)) : posts;
 
   if (loading) {
     return (
@@ -47,6 +48,7 @@ export default function PostList({ posts, loading }: Props) {
         <div className="flex flex-wrap gap-2 mb-6 pb-4 border-b border-xcode-border-light dark:border-xcode-border">
           <button
             onClick={() => setTag(null)}
+            aria-pressed={activeTag === null}
             className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors ${
               activeTag === null
                 ? 'border-xcode-accent text-xcode-accent bg-xcode-accent/10'
@@ -59,6 +61,7 @@ export default function PostList({ posts, loading }: Props) {
             <button
               key={tag}
               onClick={() => setTag(tag === activeTag ? null : tag)}
+              aria-pressed={activeTag === tag}
               className={`text-xs font-mono px-3 py-1 rounded-full border transition-colors ${
                 activeTag === tag
                   ? 'border-xcode-accent text-xcode-accent bg-xcode-accent/10'
@@ -72,7 +75,9 @@ export default function PostList({ posts, loading }: Props) {
       )}
 
       {filtered.length === 0 ? (
-        <p className="text-xcode-muted font-mono text-sm">No posts tagged "{activeTag}".</p>
+        <p className="text-xcode-muted font-mono text-sm">
+          {activeTag ? `No posts tagged "${activeTag}".` : 'No posts yet. Check back soon.'}
+        </p>
       ) : (
         filtered.map(post => <PostCard key={post.id} post={post} />)
       )}

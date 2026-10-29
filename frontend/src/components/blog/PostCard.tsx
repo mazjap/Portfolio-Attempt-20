@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import ResponsiveImage from '../shared/ResponsiveImage';
 import type { PostPreview } from '../../types';
 
 interface Props {
@@ -14,9 +15,10 @@ export default function PostCard({ post }: Props) {
     <article className="group border-b border-xcode-border-light dark:border-xcode-border py-6 last:border-0">
       <Link to={`/blog/${post.id}`} className="block">
         {post.heroImage && (
-          <img
+          <ResponsiveImage
             src={post.heroImage}
-            alt={post.title}
+            sizes="(min-width: 768px) 640px, 100vw"
+            alt=""
             className="w-full h-48 object-cover rounded-lg mb-4 group-hover:opacity-90 transition-opacity"
           />
         )}
@@ -44,7 +46,7 @@ export default function PostCard({ post }: Props) {
         )}
 
         <div className="flex flex-wrap gap-1.5">
-          {post.tags.map(tag => (
+          {(Array.isArray(post.tags) ? post.tags : []).map(tag => (
             <span
               key={tag}
               className="text-[11px] font-mono text-xcode-muted bg-xcode-surface-light dark:bg-xcode-surface border border-xcode-border-light dark:border-xcode-border px-2 py-0.5 rounded"

@@ -1,34 +1,16 @@
-import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { AppPrivacyPolicy, AppSupport } from '../types';
+import { useResource } from '../hooks/useResource';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { formatCalendarDate } from '../lib/dates';
 import MarkdownRenderer from '../components/shared/MarkdownRenderer';
+import { LoadErrorMessage } from '../components/shared/LoadProblem';
 import NotFound from './NotFound';
 
 type PageType = 'privacy-policy' | 'support';
 
-type AsyncState<T> =
-  | { status: 'loading' }
-  | { status: 'ok'; data: T }
-  | { status: 'not-found' }
-  | { status: 'error' };
-
 function isPageType(s: string | undefined): s is PageType {
   return s === 'privacy-policy' || s === 'support';
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-function toAsyncState<T>(result: PromiseSettledResult<T>): AsyncState<T> {
-  if (result.status === 'fulfilled') return { status: 'ok', data: result.value };
-  const msg: string = (result.reason as Error)?.message ?? '';
-  return msg.startsWith('404') ? { status: 'not-found' } : { status: 'error' };
 }
 
 function ContactSection({ contactText, contactUrl }: { contactText?: string; contactUrl?: string }) {
@@ -61,26 +43,25 @@ function ContactSection({ contactText, contactUrl }: { contactText?: string; con
 export default function AppPage() {
   const { appId, pageType } = useParams<{ appId: string; pageType: string }>();
 
-  const [pp, setPp] = useState<AsyncState<AppPrivacyPolicy>>({ status: 'loading' });
-  const [sup, setSup] = useState<AsyncState<AppSupport>>({ status: 'loading' });
+  // Loaded independently: the requested page shows as soon as it arrives, and the sidebar link to
+  // the other page appears whenever that one does.
+  const { state: pp, retry: retryPp } = useResource(appId, api.apps.privacyPolicy);
+  const { state: sup, retry: retrySup } = useResource(appId, api.apps.support);
 
-  useEffect(() => {
-    if (!appId) return;
-    setPp({ status: 'loading' });
-    setSup({ status: 'loading' });
-
-    Promise.allSettled([
-      api.apps.privacyPolicy(appId),
-      api.apps.support(appId),
-    ]).then(([ppResult, supResult]) => {
-      setPp(toAsyncState(ppResult));
-      setSup(toAsyncState(supResult));
-    });
-  }, [appId]);
+  const shownName = pp.status === 'ok' ? pp.data.appName : sup.status === 'ok' ? sup.data.appName : null;
+  const shown = pageType === 'privacy-policy' ? pp : sup;
+  useDocumentTitle(
+    !isPageType(pageType) ? 'Not Found'
+      : shown.status === 'ok' && shownName ? `${shownName} ${pageType === 'privacy-policy' ? 'Privacy Policy' : 'Support'}`
+      : shown.status === 'loading' ? null
+      : 'Page Not Found',
+    shownName ? `${pageType === 'support' ? 'Help and contact information' : 'Privacy policy'} for ${shownName}.` : undefined,
+  );
 
   if (!isPageType(pageType)) return <NotFound />;
 
   const requested = pageType === 'privacy-policy' ? pp : sup;
+  const retryRequested = pageType === 'privacy-policy' ? retryPp : retrySup;
   const other = pageType === 'privacy-policy' ? sup : pp;
   const otherType = pageType === 'privacy-policy' ? 'support' : 'privacy-policy';
   const otherLabel = pageType === 'privacy-policy' ? 'Support' : 'Privacy Policy';
@@ -90,7 +71,31 @@ export default function AppPage() {
     sup.status === 'ok' ? sup.data.appName :
     appId ?? '';
 
-  const loading = pp.status === 'loading' || sup.status === 'loading';
+  const sidebarLoading = pp.status === 'loading' || sup.status === 'loading';
+  const tabCls = (active: boolean) =>
+    `px-3 py-1.5 rounded-md font-mono text-xs border transition-colors ${
+      active
+        ? 'border-xcode-accent text-xcode-accent bg-xcode-accent/10'
+        : 'border-xcode-border-light dark:border-xcode-border text-xcode-muted hover:text-xcode-accent hover:border-xcode-accent/50'
+    }`;
+
+  // The sidebar is hidden below lg, so small screens get the same links as tabs above the content.
+  const mobileTabs = (pp.status === 'ok' || sup.status === 'ok') && (
+    <nav aria-label={`${appName} pages`} className="lg:hidden flex flex-wrap gap-2 mb-6">
+      {pp.status === 'ok' && (
+        <Link to={`/apps/${appId}/privacy-policy`} aria-current={pageType === 'privacy-policy' ? 'page' : undefined} className={tabCls(pageType === 'privacy-policy')}>
+          Privacy Policy
+        </Link>
+      )}
+      {sup.status === 'ok' && (
+        <Link to={`/apps/${appId}/support`} aria-current={pageType === 'support' ? 'page' : undefined} className={tabCls(pageType === 'support')}>
+          Support
+        </Link>
+      )}
+    </nav>
+  );
+  // A missing page's message depends on whether the other page exists, so wait for both then.
+  const loading = requested.status === 'loading' || (requested.status === 'not-found' && other.status === 'loading');
 
   // ── Sidebar ──────────────────────────────────────────────────────────────────
 
@@ -102,39 +107,36 @@ export default function AppPage() {
         </span>
       </div>
       <nav className="flex-1 py-1">
-        {loading ? (
-          <div className="px-3 py-4 space-y-2">
-            {[1, 2].map(n => (
-              <div key={n} className="h-4 rounded bg-xcode-surface-light dark:bg-xcode-surface animate-pulse" />
-            ))}
+        {pp.status === 'ok' && (
+          <Link
+            to={`/apps/${appId}/privacy-policy`}
+            aria-current={pageType === 'privacy-policy' ? 'page' : undefined}
+            className={`flex items-center px-3 py-1.5 text-xs transition-colors border-l-2 ${
+              pageType === 'privacy-policy'
+                ? 'border-xcode-accent bg-xcode-accent/10 text-xcode-text-light dark:text-xcode-text'
+                : 'border-transparent text-xcode-muted hover:text-xcode-text-light dark:hover:text-xcode-text hover:bg-xcode-surface-light dark:hover:bg-xcode-surface/50'
+            }`}
+          >
+            Privacy Policy
+          </Link>
+        )}
+        {sup.status === 'ok' && (
+          <Link
+            to={`/apps/${appId}/support`}
+            aria-current={pageType === 'support' ? 'page' : undefined}
+            className={`flex items-center px-3 py-1.5 text-xs transition-colors border-l-2 ${
+              pageType === 'support'
+                ? 'border-xcode-accent bg-xcode-accent/10 text-xcode-text-light dark:text-xcode-text'
+                : 'border-transparent text-xcode-muted hover:text-xcode-text-light dark:hover:text-xcode-text hover:bg-xcode-surface-light dark:hover:bg-xcode-surface/50'
+            }`}
+          >
+            Support
+          </Link>
+        )}
+        {sidebarLoading && (
+          <div className="px-3 py-2">
+            <div className="h-4 rounded bg-xcode-surface-light dark:bg-xcode-surface animate-pulse" />
           </div>
-        ) : (
-          <>
-            {pp.status === 'ok' && (
-              <Link
-                to={`/apps/${appId}/privacy-policy`}
-                className={`flex items-center px-3 py-1.5 text-xs transition-colors border-l-2 ${
-                  pageType === 'privacy-policy'
-                    ? 'border-xcode-accent bg-xcode-accent/10 text-xcode-text-light dark:text-xcode-text'
-                    : 'border-transparent text-xcode-muted hover:text-xcode-text-light dark:hover:text-xcode-text hover:bg-xcode-surface-light dark:hover:bg-xcode-surface/50'
-                }`}
-              >
-                Privacy Policy
-              </Link>
-            )}
-            {sup.status === 'ok' && (
-              <Link
-                to={`/apps/${appId}/support`}
-                className={`flex items-center px-3 py-1.5 text-xs transition-colors border-l-2 ${
-                  pageType === 'support'
-                    ? 'border-xcode-accent bg-xcode-accent/10 text-xcode-text-light dark:text-xcode-text'
-                    : 'border-transparent text-xcode-muted hover:text-xcode-text-light dark:hover:text-xcode-text hover:bg-xcode-surface-light dark:hover:bg-xcode-surface/50'
-                }`}
-              >
-                Support
-              </Link>
-            )}
-          </>
         )}
       </nav>
     </aside>
@@ -146,7 +148,7 @@ export default function AppPage() {
     return (
       <div className="flex flex-1">
         {sidebar}
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-10 space-y-4">
+        <main className="flex-1 min-w-0 max-w-3xl mx-auto px-6 py-10 space-y-4">
           {[80, 50, 65, 45, 70].map((w, i) => (
             <div key={i} className="h-4 rounded bg-xcode-surface-light dark:bg-xcode-surface animate-pulse" style={{ width: `${w}%` }} />
           ))}
@@ -161,10 +163,9 @@ export default function AppPage() {
     return (
       <div className="flex flex-1">
         {sidebar}
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-10">
-          <p className="text-xcode-text-light/70 dark:text-xcode-text/70">
-            Something went wrong loading this page. Try again later.
-          </p>
+        <main className="flex-1 min-w-0 max-w-3xl mx-auto px-6 py-10">
+          {mobileTabs}
+          <LoadErrorMessage what="page" onRetry={retryRequested} />
         </main>
       </div>
     );
@@ -176,7 +177,8 @@ export default function AppPage() {
     return (
       <div className="flex flex-1">
         {sidebar}
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-10">
+        <main className="flex-1 min-w-0 max-w-3xl mx-auto px-6 py-10">
+          {mobileTabs}
           {other.status === 'ok' ? (
             <p className="text-xcode-text-light/70 dark:text-xcode-text/70">
               {appName} doesn't have a {pageType === 'privacy-policy' ? 'privacy policy' : 'support'} page.{' '}
@@ -204,12 +206,13 @@ export default function AppPage() {
     return (
       <div className="flex flex-1">
         {sidebar}
-        <main className="flex-1 max-w-3xl mx-auto px-6 py-10">
+        <main className="flex-1 min-w-0 max-w-3xl mx-auto px-6 py-10">
+          {mobileTabs}
           <header className="mb-8">
             <h1 className="text-3xl font-semibold text-xcode-text-light dark:text-xcode-text mb-2">
               {page.appName} Privacy Policy
             </h1>
-            <p className="text-sm text-xcode-muted">Last updated: {formatDate(page.lastUpdated)}</p>
+            <p className="text-sm text-xcode-muted">Last updated: {formatCalendarDate(page.lastUpdated)}</p>
           </header>
           <MarkdownRenderer content={page.content} />
           <ContactSection contactText={page.contactText} contactUrl={page.contactUrl} />
@@ -220,11 +223,13 @@ export default function AppPage() {
 
   // ── Support ──────────────────────────────────────────────────────────────────
 
-  const page = (sup as { status: 'ok'; data: AppSupport }).data;
+  if (sup.status !== 'ok') return <NotFound />;
+  const page = sup.data;
   return (
     <div className="flex flex-1">
       {sidebar}
-      <main className="flex-1 max-w-3xl mx-auto px-6 py-10">
+      <main className="flex-1 min-w-0 max-w-3xl mx-auto px-6 py-10">
+        {mobileTabs}
         <header className="mb-8">
           <h1 className="text-3xl font-semibold text-xcode-text-light dark:text-xcode-text mb-2">
             {page.appName} Support v{page.version}

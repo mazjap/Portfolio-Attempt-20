@@ -1,33 +1,26 @@
-import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useRef } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { usePostNav } from '../../hooks/usePosts';
+import { useResource } from '../../hooks/useResource';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import Sidebar from '../layout/Sidebar';
 import MarkdownRenderer from '../shared/MarkdownRenderer';
 import ScrollMinimap from '../shared/ScrollMinimap';
-import type { PostDetail as PostDetailType } from '../../types';
+import ResponsiveImage from '../shared/ResponsiveImage';
+import { LoadErrorMessage, NotFoundMessage } from '../shared/LoadProblem';
 
 export default function PostDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const articleRef = useRef<HTMLElement>(null);
-  const [post, setPost] = useState<PostDetailType | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { state, retry } = useResource(id, api.posts.get);
+  const post = state.status === 'ok' ? state.data : null;
+  const tags = Array.isArray(post?.tags) ? post.tags : [];
+  useDocumentTitle(
+    post ? post.title : state.status === 'not-found' ? 'Post Not Found' : state.status === 'error' ? 'Error' : null,
+    post?.excerpt,
+  );
   const { nav, loading: navLoading } = usePostNav();
-
-  useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
-    api.posts.get(id)
-      .then(setPost)
-      .catch(err => {
-        if ((err as Error).message.startsWith('404')) navigate('/blog', { replace: true });
-        else setError('Failed to load post.');
-      })
-      .finally(() => setLoading(false));
-  }, [id, navigate]);
 
   const date = post
     ? new Date(post.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -38,7 +31,7 @@ export default function PostDetail() {
       <Sidebar type="posts" items={nav ?? []} loading={navLoading} />
 
       <main className="flex-1 min-w-0">
-        {loading && (
+        {state.status === 'loading' && (
           <div className="max-w-prose mx-auto px-6 py-10 animate-pulse space-y-4">
             <div className="h-8 w-3/4 rounded bg-xcode-surface-light dark:bg-xcode-surface" />
             <div className="h-4 w-40 rounded bg-xcode-surface-light dark:bg-xcode-surface" />
@@ -48,16 +41,24 @@ export default function PostDetail() {
           </div>
         )}
 
-        {error && (
-          <div className="max-w-prose mx-auto px-6 py-10 text-xcode-red font-mono text-sm">{error}</div>
+        {state.status === 'not-found' && (
+          <NotFoundMessage what="post" id={id} backTo="/blog" backLabel="All posts" />
         )}
+
+        {state.status === 'error' && <LoadErrorMessage what="post" onRetry={retry} />}
 
         {post && (
           <article ref={articleRef} className="max-w-prose mx-auto px-6 py-10 animate-fade-in">
+            {/* The sidebar is hidden below lg, so small screens get a way back. */}
+            <Link to="/blog" className="lg:hidden inline-block mb-4 font-mono text-xs text-xcode-accent hover:underline">
+              ← All posts
+            </Link>
             {post.heroImage && (
-              <img
+              <ResponsiveImage
                 src={post.heroImage}
-                alt={post.title}
+                sizes="(min-width: 768px) 680px, 100vw"
+                loading="eager"
+                alt=""
                 className="w-full rounded-xl object-cover mb-8 max-h-72"
               />
             )}
@@ -78,7 +79,7 @@ export default function PostDetail() {
               <time dateTime={post.createdAt}>{date}</time>
               <span>·</span>
               <span>{post.readingTime} min read</span>
-              {post.tags.map(tag => (
+              {tags.map(tag => (
                 <Link
                   key={tag}
                   to={`/blog?tag=${encodeURIComponent(tag)}`}
@@ -96,7 +97,7 @@ export default function PostDetail() {
         )}
       </main>
 
-      <ScrollMinimap contentRef={articleRef} seed={id ?? 'post'} />
+      <ScrollMinimap contentRef={articleRef} contentKey={post ? post.id : null} />
     </div>
   );
 }

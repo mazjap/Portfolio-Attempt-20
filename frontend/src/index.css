@@ -3,6 +3,32 @@
 @tailwind utilities;
 
 @layer base {
+  /* Accent colors as RGB channels, so Tailwind opacity modifiers (`bg-xcode-accent/10`) still work.
+     Light values are darker so small text meets WCAG AA (4.5:1) on the light backgrounds; dark values
+     are Xcode's. `.xcode-dark-tokens` forces the dark values inside always-dark panels (the console). */
+  :root {
+    --xcode-accent: 11 105 181;   /* #0B69B5 */
+    --xcode-muted: 99 99 102;     /* #636366 */
+    --xcode-green: 27 122 53;     /* #1B7A35 */
+    --xcode-yellow: 138 90 0;     /* #8A5A00 */
+    --xcode-red: 196 39 29;       /* #C4271D */
+    --xcode-orange: 173 74 0;     /* #AD4A00 */
+    --xcode-pink: 181 34 106;     /* #B5226A */
+    --xcode-teal: 0 110 138;      /* #006E8A */
+  }
+
+  .dark,
+  .xcode-dark-tokens {
+    --xcode-accent: 78 184 250;   /* #4EB8FA */
+    --xcode-muted: 156 156 161;   /* #9C9CA1 */
+    --xcode-green: 40 200 64;     /* #28C840 */
+    --xcode-yellow: 255 179 64;   /* #FFB340 */
+    --xcode-red: 255 105 97;      /* #FF6961 */
+    --xcode-orange: 255 123 41;   /* #FF7B29 */
+    --xcode-pink: 252 95 163;     /* #FC5FA3 */
+    --xcode-teal: 93 216 255;     /* #5DD8FF */
+  }
+
   html {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -80,3 +106,15 @@
 .hljs-title.function_ { color: #3900A0; }
 .hljs-comment { color: #5D6C79; font-style: italic; }
 .hljs-built_in { color: #9B2393; }
+
+/* Respect the OS "reduce motion" setting: no blinking cursor, fades, slides, or smooth scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -27,7 +27,7 @@ export default function Sidebar({ type, items, loading }: Props) {
         </span>
       </div>
 
-      <nav className="flex-1 py-1">
+      <nav className="flex-1 py-1" aria-label={type === 'projects' ? 'Projects' : 'Posts'}>
         {loading && (
           <div className="px-3 py-4 space-y-2">
             {[1, 2, 3, 4].map(n => (
@@ -44,6 +44,7 @@ export default function Sidebar({ type, items, loading }: Props) {
             <Link
               key={item.id}
               to={to}
+              aria-current={isActive ? 'page' : undefined}
               className={`flex items-center gap-2 px-3 py-1.5 text-sm transition-colors border-l-2 ${
                 isActive
                   ? 'border-xcode-accent bg-xcode-accent/10 text-xcode-text-light dark:text-xcode-text'
@@ -55,7 +56,7 @@ export default function Sidebar({ type, items, loading }: Props) {
               )}
               <span className="truncate text-xs leading-5">{item.title}</span>
               {type === 'projects' && (item as ProjectNav).featured && (
-                <span className="ml-auto flex-shrink-0 text-yellow-400 text-[11px] leading-none">★</span>
+                <span className="ml-auto flex-shrink-0 text-yellow-400 text-[11px] leading-none" aria-hidden>★</span>
               )}
             </Link>
           );

@@ -1,9 +1,12 @@
 import { useProjects } from '../hooks/useProjects';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import ProjectGrid from '../components/projects/ProjectGrid';
 import CrashReport from '../components/shared/CrashReport';
+import ListError from '../components/shared/ListError';
 
 export default function Projects() {
-  const { projects, loading, error } = useProjects();
+  const { projects, loading, error, retry } = useProjects();
+  useDocumentTitle('Projects', "Things I've built, am building, or broke and rebuilt.");
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-10 w-full">
@@ -13,7 +16,9 @@ export default function Projects() {
       </div>
 
       {error ? (
-        <CrashReport context="projects" />
+        <ListError onRetry={retry}>
+          <CrashReport context="projects" />
+        </ListError>
       ) : (
         <ProjectGrid projects={projects ?? []} loading={loading} />
       )}

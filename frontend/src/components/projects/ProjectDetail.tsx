@@ -1,30 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useRef } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { EXT_COLORS, getCategoryExtension } from '../../lib/category';
 import { useProjectNav } from '../../hooks/useProjects';
+import { useResource } from '../../hooks/useResource';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import Sidebar from '../layout/Sidebar';
 import StatusBadge from '../shared/StatusBadge';
 import MediaCarousel from './MediaCarousel';
 import MarkdownRenderer from '../shared/MarkdownRenderer';
 import ScrollMinimap from '../shared/ScrollMinimap';
-import type { ProjectDetail as ProjectDetailType } from '../../types';
-
-type FileExt = 'ts' | 'swift' | 'phys';
-
-function getCategoryExtension(category?: string): FileExt | null {
-  if (!category) return null;
-  const cat = category.toLowerCase().trim();
-  if (cat === 'web') return 'ts';
-  if (/^(ios|macos|watchos|tvos|visionos)\s+app$/.test(cat)) return 'swift';
-  if (cat === 'hardware') return 'phys';
-  return null;
-}
-
-const EXT_COLORS: Record<FileExt, string> = {
-  swift: 'text-xcode-orange',
-  ts: 'text-xcode-accent',
-  phys: 'text-xcode-green',
-};
+import ResponsiveImage from '../shared/ResponsiveImage';
+import { LoadErrorMessage, NotFoundMessage } from '../shared/LoadProblem';
 
 function LinkButton({ href, label }: { href: string; label: string }) {
   return (
@@ -41,25 +28,16 @@ function LinkButton({ href, label }: { href: string; label: string }) {
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
   const articleRef = useRef<HTMLElement>(null);
-  const [project, setProject] = useState<ProjectDetailType | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { state, retry } = useResource(id, api.projects.get);
+  const project = state.status === 'ok' ? state.data : null;
   const { nav, loading: navLoading } = useProjectNav();
-
-  useEffect(() => {
-    if (!id) return;
-    setLoading(true);
-    setError(null);
-    api.projects.get(id)
-      .then(setProject)
-      .catch(err => {
-        if ((err as Error).message.startsWith('404')) navigate('/projects', { replace: true });
-        else setError('Failed to load project.');
-      })
-      .finally(() => setLoading(false));
-  }, [id, navigate]);
+  const media = Array.isArray(project?.media) ? project.media : [];
+  const techStack = Array.isArray(project?.techStack) ? project.techStack : [];
+  useDocumentTitle(
+    project ? project.title : state.status === 'not-found' ? 'Project Not Found' : state.status === 'error' ? 'Error' : null,
+    project?.tagline,
+  );
 
   const ext = project ? getCategoryExtension(project.category) : null;
   const extColor = ext ? EXT_COLORS[ext] : null;
@@ -69,7 +47,7 @@ export default function ProjectDetail() {
       <Sidebar type="projects" items={nav ?? []} loading={navLoading} />
 
       <main className="flex-1 min-w-0">
-        {loading && (
+        {state.status === 'loading' && (
           <div className="max-w-2xl mx-auto px-6 py-10 animate-pulse space-y-4">
             <div className="h-8 w-1/2 rounded bg-xcode-surface-light dark:bg-xcode-surface" />
             <div className="h-48 rounded-xl bg-xcode-surface-light dark:bg-xcode-surface" />
@@ -81,12 +59,18 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {error && (
-          <div className="max-w-2xl mx-auto px-6 py-10 text-xcode-red font-mono text-sm">{error}</div>
+        {state.status === 'not-found' && (
+          <NotFoundMessage what="project" id={id} backTo="/projects" backLabel="All projects" />
         )}
+
+        {state.status === 'error' && <LoadErrorMessage what="project" onRetry={retry} />}
 
         {project && (
           <article ref={articleRef} className="max-w-2xl mx-auto px-6 py-10 animate-fade-in">
+            {/* The sidebar is hidden below lg, so small screens get a way back. */}
+            <Link to="/projects" className="lg:hidden inline-block mb-4 font-mono text-xs text-xcode-accent hover:underline">
+              ← All projects
+            </Link>
             <div className="flex items-start justify-between gap-4 mb-6">
               <div>
                 <h1 className="font-mono text-2xl font-semibold text-xcode-text-light dark:text-xcode-text">
@@ -103,27 +87,30 @@ export default function ProjectDetail() {
               <StatusBadge status={project.status} showLabel />
             </div>
 
-            {project.media && project.media.length > 0 && (
+            {media.length > 0 && (
               <div className="mb-8">
-                <MediaCarousel media={project.media} title={project.title} />
+                {/* Keyed by project so the selected image resets when switching projects. */}
+                <MediaCarousel key={project.id} media={media} title={project.title} />
               </div>
             )}
 
-            {project.heroImage && !project.media?.length && (
-              <img
+            {project.heroImage && media.length === 0 && (
+              <ResponsiveImage
                 src={project.heroImage}
-                alt={project.title}
+                sizes="(min-width: 768px) 672px, 100vw"
+                loading="eager"
+                alt=""
                 className="w-full rounded-xl object-cover mb-8 max-h-72"
               />
             )}
 
             <MarkdownRenderer content={project.description} className="mb-8" />
 
-            {project.techStack?.length > 0 && (
+            {techStack.length > 0 && (
               <div className="mb-8">
                 <h2 className="text-[11px] font-mono uppercase tracking-widest text-xcode-muted mb-3">Tech Stack</h2>
                 <div className="space-y-1 font-mono text-sm">
-                  {project.techStack.map(t => (
+                  {techStack.map(t => (
                     <div key={t} className="flex items-center gap-2">
                       <span className="text-xcode-pink">import</span>
                       <span className="text-xcode-text-light dark:text-xcode-text">{t}</span>
@@ -137,7 +124,7 @@ export default function ProjectDetail() {
               <div>
                 <h2 className="text-[11px] font-mono uppercase tracking-widest text-xcode-muted mb-3">Links</h2>
                 <div className="flex flex-wrap gap-2">
-                  {Object.entries(project.links).map(([label, href]) => (
+                  {Object.entries(project.links ?? {}).map(([label, href]) => (
                     <LinkButton key={label} href={href} label={label} />
                   ))}
                 </div>
@@ -147,7 +134,7 @@ export default function ProjectDetail() {
         )}
       </main>
 
-      <ScrollMinimap contentRef={articleRef} seed={id ?? 'project'} />
+      <ScrollMinimap contentRef={articleRef} contentKey={project ? project.id : null} />
     </div>
   );
 }

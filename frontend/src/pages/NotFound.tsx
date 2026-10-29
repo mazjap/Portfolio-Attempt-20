@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 const K = {
   keyword: '#FC5FA3',
@@ -47,6 +48,7 @@ function fn(s: string) { return <span style={{ color: K.func }}>{s}</span>; }
 function co(s: string) { return <span style={{ color: K.comment }}>{s}</span>; }
 
 export default function NotFound() {
+  useDocumentTitle('Not Found');
   const { pathname } = useLocation();
   const navigate = useNavigate();
 

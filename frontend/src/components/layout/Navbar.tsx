@@ -1,52 +1,67 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 
 type BuildState = null | 'building' | 'success';
-type RunState = null | 'running';
 type CleanState = null | 'cleaning' | 'done';
 
 export default function Navbar() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
   const [build, setBuild] = useState<BuildState>(null);
-  const [run, setRun] = useState<RunState>(null);
   const [clean, setClean] = useState<CleanState>(null);
+
+  const timers = useRef<number[]>([]);
 
   function toggleDark() {
     const next = !dark;
     setDark(next);
     document.documentElement.classList.toggle('dark', next);
-    localStorage.setItem('theme', next ? 'dark' : 'light');
+    try {
+      localStorage.setItem('theme', next ? 'dark' : 'light');
+    } catch {
+      // Storage unavailable (private mode): the choice lasts until the page is reloaded.
+    }
   }
 
+  // Xcode's shortcuts show fake build toasts. ⌘R isn't intercepted: browsers use it to reload, and
+  // reloading is how people recover from problems. Shortcuts are ignored while typing.
   useEffect(() => {
+    const later = (fn: () => void, ms: number) => timers.current.push(window.setTimeout(fn, ms));
+    const clearTimers = () => {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+    };
+
     function handler(e: KeyboardEvent) {
       if (!e.metaKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (!e.shiftKey && e.key === 'b') {
         e.preventDefault();
+        clearTimers();
+        setClean(null);
         setBuild('building');
-        setTimeout(() => setBuild('success'), 900);
-        setTimeout(() => setBuild(null), 3500);
+        later(() => setBuild('success'), 900);
+        later(() => setBuild(null), 3500);
       }
-      if (!e.shiftKey && e.key === 'r') {
+      if (e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setRun('running');
-        setTimeout(() => setRun(null), 3000);
-      }
-      if (e.shiftKey && e.key === 'K') {
-        e.preventDefault();
+        clearTimers();
+        setBuild(null);
         setClean('cleaning');
-        setTimeout(() => setClean('done'), 700);
-        setTimeout(() => setClean(null), 2500);
+        later(() => setClean('done'), 700);
+        later(() => setClean(null), 2500);
       }
     }
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+      clearTimers();
+    };
   }, []);
 
   const toast = (() => {
     if (build === 'building') return { text: '⟳  Building…', cls: 'text-xcode-yellow' };
     if (build === 'success') return { text: '✓  Build Succeeded', cls: 'text-xcode-green' };
-    if (run === 'running') return { text: '▶  Running on iPhone 16 Pro Simulator…', cls: 'text-xcode-teal' };
     if (clean === 'cleaning') return { text: 'Clean Build Folder…', cls: 'text-xcode-muted' };
     if (clean === 'done') return { text: 'Clean Build Folder… Done.', cls: 'text-xcode-muted' };
     return null;
@@ -61,7 +76,7 @@ export default function Navbar() {
 
   return (
     <>
-      <nav className="sticky top-0 z-40 border-b border-xcode-border-light dark:border-xcode-border bg-xcode-bg-light/90 dark:bg-xcode-bg/90 backdrop-blur-sm">
+      <nav aria-label="Main" className="sticky top-0 z-40 border-b border-xcode-border-light dark:border-xcode-border bg-xcode-bg-light/90 dark:bg-xcode-bg/90 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 h-12 grid grid-cols-[1fr_auto_1fr] items-center gap-4">
           <Link
             to="/"
@@ -104,7 +119,7 @@ export default function Navbar() {
       </nav>
 
       {toast && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 animate-slide-up">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 animate-slide-up" role="status">
           <div className="flex items-center gap-2 rounded-lg px-4 py-2 bg-xcode-sidebar-light dark:bg-xcode-sidebar border border-xcode-border-light dark:border-xcode-border shadow-xl">
             <span className={`font-mono text-sm ${toast.cls}`}>{toast.text}</span>
             {build === 'success' && (

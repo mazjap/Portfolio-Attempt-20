@@ -1,53 +1,17 @@
-import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
-import { useCache } from './useCache';
+import { isListOfItems } from '../lib/cache';
+import { useCachedList } from './useCachedList';
 import type { PostPreview, PostNav } from '../types';
 
+const loadPosts = () => api.posts.list();
+const loadPostNav = () => api.posts.nav();
+
 export function usePosts() {
-  const [posts, setPosts] = useState<PostPreview[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const cache = useCache<PostPreview[]>('posts');
-
-  useEffect(() => {
-    const cached = cache.get();
-    if (cached) {
-      setPosts(cached);
-      setLoading(false);
-      return;
-    }
-    api.posts.list()
-      .then(data => {
-        setPosts(data);
-        cache.set(data);
-      })
-      .catch(err => setError((err as Error).message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  return { posts, loading, error };
+  const { data, loading, error, retry } = useCachedList('posts', loadPosts, isListOfItems<PostPreview>);
+  return { posts: data, loading, error, retry };
 }
 
-export function usePostNav() {
-  const [nav, setNav] = useState<PostNav[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const cache = useCache<PostNav[]>('posts-nav');
-
-  useEffect(() => {
-    const cached = cache.get();
-    if (cached) {
-      setNav(cached);
-      setLoading(false);
-      return;
-    }
-    api.posts.nav()
-      .then(data => {
-        setNav(data);
-        cache.set(data);
-      })
-      .catch(() => {/* non-fatal */})
-      .finally(() => setLoading(false));
-  }, []);
-
-  return { nav, loading };
+export function usePostNav({ enabled = true }: { enabled?: boolean } = {}) {
+  const { data, loading } = useCachedList('posts-nav', loadPostNav, isListOfItems<PostNav>, { enabled });
+  return { nav: data, loading };
 }
