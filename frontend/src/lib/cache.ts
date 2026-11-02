@@ -5,6 +5,8 @@
 // - Failures are never cached.
 // - Identical requests in flight share one fetch (the sidebar and the console both want the nav).
 // - Every localStorage access is guarded: it throws in some private modes and when storage is full.
+// - onPageReturn() tells the list hooks when the visitor comes back to the tab, so a page left open
+//   picks up content published from Folio in the meantime.
 
 export const TTL_MS = 5 * 60 * 1000;
 const PREFIX = 'cache:v1:';
@@ -18,6 +20,8 @@ interface Entry {
 export interface CachedValue<T> {
   data: T;
   fresh: boolean;
+  /** Milliseconds since the entry was written. */
+  ageMs: number;
 }
 
 function storage(): Storage | null {
@@ -41,7 +45,7 @@ export function readCache<T>(key: string, isValid: (value: unknown) => value is 
     if (!raw) return null;
     const entry = JSON.parse(raw) as Entry;
     if (typeof entry?.ts !== 'number' || !isValid(entry.data)) return null;
-    return { data: entry.data, fresh: now - entry.ts < TTL_MS };
+    return { data: entry.data, fresh: now - entry.ts < TTL_MS, ageMs: now - entry.ts };
   } catch {
     return null;
   }
@@ -85,4 +89,21 @@ export function isListOfItems<T extends { id: string; title: string }>(value: un
     Array.isArray(value) &&
     value.every(item => typeof item === 'object' && item !== null && typeof item.id === 'string' && typeof item.title === 'string')
   );
+}
+
+/**
+ * Calls `callback` whenever the visitor returns to the page: the window regains focus, or the tab
+ * becomes visible again. Switching tabs usually fires both, so callers should tolerate a double call
+ * (fetchShared already merges the requests). Returns an unsubscribe function.
+ */
+export function onPageReturn(callback: () => void): () => void {
+  const onVisibility = () => {
+    if (document.visibilityState === 'visible') callback();
+  };
+  window.addEventListener('focus', callback);
+  document.addEventListener('visibilitychange', onVisibility);
+  return () => {
+    window.removeEventListener('focus', callback);
+    document.removeEventListener('visibilitychange', onVisibility);
+  };
 }

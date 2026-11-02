@@ -26,14 +26,22 @@ if (existsSync(outDir)) {
   process.exit(1);
 }
 
-// App pages aren't listed by the API, but the generated sitemap lists them.
+// App IDs come from GET /api/apps; a server deployed before it existed only lists them in the sitemap.
+const base = siteUrl.replace(/\/+$/, '');
 let appIds: string[] = [];
 try {
-  const res = await fetch(`${siteUrl.replace(/\/+$/, '')}/sitemap.xml`);
+  const res = await fetch(`${base}/api/apps`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  appIds = appIdsFromSitemap(await res.text());
-} catch (err) {
-  console.error(`Couldn't read the sitemap for app IDs (${(err as Error).message}); app pages will be missing.`);
+  const apps = await res.json() as { id?: unknown }[];
+  appIds = apps.map(app => app.id).filter((id): id is string => typeof id === 'string');
+} catch {
+  try {
+    const res = await fetch(`${base}/sitemap.xml`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    appIds = appIdsFromSitemap(await res.text());
+  } catch (err) {
+    console.error(`Couldn't read the app list or the sitemap for app IDs (${(err as Error).message}); app pages will be missing.`);
+  }
 }
 
 const result = await takeSnapshot({ siteUrl, outDir, appIds });

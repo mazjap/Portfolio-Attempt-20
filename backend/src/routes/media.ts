@@ -10,6 +10,7 @@ import { derivativePaths, isDerivative, MAX_PIXELS, writeImageSet } from '../lib
 import { withLock } from '../lib/lock.js';
 import { isValidContentId, isValidMediaFilename, resolveInside, safeMediaBaseName } from '../lib/paths.js';
 import { logger } from '../lib/logger.js';
+import { findUsers, mediaPathWithSizes, usedByMessage } from '../lib/references.js';
 
 const router = Router();
 
@@ -182,6 +183,13 @@ router.delete('/:context/:id/:filename', authenticate, async (req, res) => {
     await withLock('media', async () => {
       if (!await fileExists(filePath)) {
         res.status(404).json({ error: 'File not found' });
+        return;
+      }
+      // Refuse to break a page: content still using the file (or one of its sizes) keeps it.
+      const users = [...new Set([...(await findUsers(mediaPathWithSizes(context, id, filename))).values()].flat())];
+      if (users.length) {
+        logger.warn(`Delete media ${context}/${id}/${filename} refused: used by ${users.join(', ')}`);
+        res.status(409).json({ error: `This file is still used by ${usedByMessage(users)}. Remove it from there first.`, usedBy: users });
         return;
       }
       await unlink(filePath);

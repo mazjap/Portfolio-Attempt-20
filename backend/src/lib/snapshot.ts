@@ -2,6 +2,7 @@
 // without server access (see "Backups" in DEPLOY.md). Used by `npm run snapshot`.
 import { mkdir, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
+import { mediaPathsIn } from './references.js';
 
 export interface SnapshotResult {
   projects: number;
@@ -20,22 +21,6 @@ export function appIdsFromSitemap(xml: string): string[] {
   const ids = new Set<string>();
   for (const match of xml.matchAll(/<loc>[^<]*\/apps\/([a-z0-9-]+)\/(?:privacy-policy|support)\/?<\/loc>/g)) ids.add(match[1]);
   return [...ids].sort();
-}
-
-/** Every `/media/…` path a record uses: `heroImage`, `media[].url`, and links in Markdown bodies. */
-export function mediaPathsIn(record: unknown): string[] {
-  if (typeof record !== 'object' || record === null) return [];
-  const r = record as { heroImage?: unknown; media?: unknown; description?: unknown; content?: unknown };
-  const paths: string[] = [];
-  if (typeof r.heroImage === 'string' && r.heroImage.startsWith('/media/')) paths.push(r.heroImage);
-  for (const item of Array.isArray(r.media) ? r.media : []) {
-    const url = (item as { url?: unknown } | null)?.url;
-    if (typeof url === 'string' && url.startsWith('/media/')) paths.push(url);
-  }
-  for (const body of [r.description, r.content]) {
-    if (typeof body === 'string') for (const m of body.matchAll(/\/media\/[^\s"'()<>]+/g)) paths.push(m[0]);
-  }
-  return paths;
 }
 
 /**

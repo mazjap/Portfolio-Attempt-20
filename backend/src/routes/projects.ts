@@ -9,6 +9,8 @@ import { isValidContentId, resolveInside } from '../lib/paths.js';
 import { regenerateProjects } from '../lib/regenerate.js';
 import { applyUpdate, formatErrors, parse, projectSchema } from '../lib/schemas.js';
 import { logger } from '../lib/logger.js';
+import { deleteUnusedItemMedia } from '../lib/references.js';
+import { expectedVersion, isRepeatedCreate, isStale, staleMessage } from '../lib/versions.js';
 import { refreshSiteFiles } from '../lib/site.js';
 import type { ProjectDetail, ProjectPreview, ProjectNav } from '../lib/types.js';
 
@@ -77,6 +79,13 @@ router.post('/', authenticate, async (req, res) => {
     await withLock('projects', async () => {
       const filePath = resolveInside(projectsDir, `${id}.json`);
       if (await fileExists(filePath)) {
+        // A retry of a create whose response was lost gets the record it made, not a 409.
+        const existing = await readJSON<ProjectDetail>(filePath).catch(() => null);
+        if (isRepeatedCreate(Object.keys(projectSchema), parsed.value, req.body, existing)) {
+          logger.info(`Create project ${id}: repeated an earlier identical create; returned the stored project`);
+          res.status(200).json(existing);
+          return;
+        }
         logger.warn(`Create project failed: ${id} already exists`);
         res.status(409).json({ error: 'Project already exists' });
         return;
@@ -96,6 +105,11 @@ router.post('/', authenticate, async (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
   try {
+    const expected = expectedVersion(req);
+    if (!expected.ok) {
+      res.status(400).json({ error: expected.error });
+      return;
+    }
     const parsed = parse(projectSchema, req.body, 'update');
     if (!parsed.ok) {
       logger.warn(`Update project ${id} failed: ${parsed.errors.join('; ')}`);
@@ -112,6 +126,11 @@ router.put('/:id', authenticate, async (req, res) => {
         return;
       }
       const existing = await readJSON<ProjectDetail>(filePath);
+      if (isStale(expected.version, existing)) {
+        logger.warn(`Update project ${id} refused: it changed after ${expected.version}`);
+        res.status(409).json({ error: staleMessage('project', existing), current: existing });
+        return;
+      }
       const updated = { ...applyUpdate(existing, parsed), id, updatedAt: new Date().toISOString() };
       await writeJSON(filePath, updated);
       await regenerateAfterWrite(`Updating project ${id}`);
@@ -127,6 +146,11 @@ router.put('/:id', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
   try {
+    const expected = expectedVersion(req);
+    if (!expected.ok) {
+      res.status(400).json({ error: expected.error });
+      return;
+    }
     await withLock('projects', async () => {
       const filePath = resolveInside(projectsDir, `${id}.json`);
       if (!await fileExists(filePath)) {
@@ -134,8 +158,17 @@ router.delete('/:id', authenticate, async (req, res) => {
         res.status(404).json({ error: 'Project not found' });
         return;
       }
+      if (expected.version !== null) {
+        const existing = await readJSON<ProjectDetail>(filePath);
+        if (isStale(expected.version, existing)) {
+          logger.warn(`Delete project ${id} refused: it changed after ${expected.version}`);
+          res.status(409).json({ error: staleMessage('project', existing), current: existing });
+          return;
+        }
+      }
       await unlink(filePath);
       await regenerateAfterWrite(`Deleting project ${id}`);
+      await withLock('media', () => deleteUnusedItemMedia('projects', id));
       logger.info(`Deleted project: ${id}`);
       res.json({ success: true });
     });

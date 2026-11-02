@@ -93,6 +93,11 @@ const SERVER_OWNED = new Set(['id', 'updatedAt', 'readingTime']);
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** An ISO 8601 date and time, like `2025-01-31T12:00:00Z` (fractional seconds and offsets allowed). */
+export function isDateTime(value: unknown): value is string {
+  return typeof value === 'string' && DATE_TIME.test(value) && !Number.isNaN(Date.parse(value));
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -131,7 +136,7 @@ function check(name: string, rule: Rule, value: unknown): string | null {
         ? null
         : `${name} must be one of: ${rule.values.join(', ')}`;
     case 'dateTime':
-      return typeof value === 'string' && DATE_TIME.test(value) && !Number.isNaN(Date.parse(value))
+      return isDateTime(value)
         ? null
         : `${name} must be an ISO 8601 date and time, like 2025-01-31T12:00:00Z`;
     case 'date':

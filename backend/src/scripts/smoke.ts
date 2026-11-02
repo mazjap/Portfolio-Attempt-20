@@ -59,6 +59,9 @@ if (posts?.[0]) {
   report(post?.id === posts[0].id ? 'PASS' : 'FAIL', `post detail /api/posts/${posts[0].id}`);
 }
 
+const apps = await json<{ id: string; pages: string[] }[]>('/api/apps');
+report(Array.isArray(apps) && apps.length > 0 ? 'PASS' : 'WARN', 'app list', Array.isArray(apps) ? apps.map(app => app.id).join(', ') : 'not deployed yet (added October 31, 2026)');
+
 for (const [path, marker] of [['/sitemap.xml', '<urlset'], ['/feed.xml', '<rss']] as const) {
   const res = await get(path);
   const text = res?.ok ? await res.text() : '';

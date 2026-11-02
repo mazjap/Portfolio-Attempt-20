@@ -72,7 +72,7 @@ Done October 29, 2026. Verified in headless Chrome against a production build (1
   - The console uses it (so it respects `VITE_API_BASE_URL`) and fetches nothing until opened.
   - The old `useCache` and the console's 24-hour cache are gone.
   - Failed lists get **Try Again**.
-- [ ] **Show fresh content after a publish** (S, Folio AUDIT.md #24): the shared cache revalidates when a list mounts, but a page left open never shows a Folio publish. Revalidate lists and nav on window focus and `visibilitychange`.
+- [x] **Show fresh content after a publish** (S, Folio AUDIT.md #24): returning to the tab (window `focus`, or `visibilitychange` to visible) refetches every mounted list and nav in the background, even a fresh one, unless it was fetched in the last 10 seconds. The list stays on screen while it reloads, and a failed refetch keeps it instead of showing an error. Tested in `useCachedList.test.tsx`.
 - [x] **Polish** (S, #31):
   - Empty blog and empty project-list messages.
   - `Home` interval cleanup.
@@ -160,16 +160,16 @@ All checked items were verified end to end in a scratch copy on October 29, 2026
   - `"engines": { "node": ">=20.9" }` is in `package.json`.
 - [x] **Phase 1 fix** (found by `npm run check`): existing media have names with spaces and odd characters (`1. Launch.webp`, `Screenshot … 1.45.58â¯PM.webp`), so URL validation and the media delete route now accept them. The phase 1 delete rule had rejected them, which would have broken Folio's unused-image cleanup for trekpoint, portfolio, and hailey60.
 
-- [ ] **Conditional writes** (M, Folio AUDIT.md #4): Folio's stale-draft check only compares versions when an editor opens; a save from another device or window in between is silently overwritten. Accept the `updatedAt` the client started from (an `If-Unmodified-Since`-style field or header, or an ETag) on `PUT` and `DELETE`, compare it inside the existing `withLock`, and return 409 with the current record when it doesn't match. Then Folio sends it and offers reload/compare on conflict (Folio task below).
-- [ ] **`updatedAt` on app pages** (S, Folio #4, #10): privacy policies and support pages have no server version, so Folio's app-page drafts can't be detected as stale, and conditional writes have nothing to compare. Set it on create and update, like posts.
-- [ ] **Media lifecycle on delete** (M, Folio #12):
-  - Deleting a project or post leaves `media/<context>/<id>/`. Delete it (with its sizes), or have `npm run check` list it.
-  - Folio only deletes files in an item's own folder, but another item could still embed one of them. Have the media delete route refuse (409) a file that another record references, so cleanup can't break a page.
-- [ ] **Safe retry of creates** (S, Folio #16): a create that saved on the server but whose response was lost gets 409 when Folio retries. Either accept an idempotency key, or return the existing record when an identical create is retried.
+- [x] **Conditional writes** (M, Folio AUDIT.md #4): `PUT` and `DELETE` on projects, posts, and app pages accept `X-Expected-Version`, the `updatedAt ?? createdAt` the client loaded. It's compared inside the write's `withLock` (to the millisecond, or to the second if the client sent no fractional seconds, as Swift's `.iso8601` does), and a mismatch gets 409 with the error and the `current` record. Without the header, writes are unconditional as before. See "Conditional writes" in `backend/DEVDOC.md`.
+- [x] **`updatedAt` on app pages** (S, Folio #4, #10): set on every create and update (server-owned, ignored if sent). Pages last saved before this have none until their next save; a conditional write to one counts as stale.
+- [x] **Media lifecycle on delete** (M, Folio #12):
+  - Deleting a project or post deletes the files in `media/<context>/<id>/` that no other content uses (with their sizes), then the folder if it's empty. Files another item uses are kept and logged.
+  - The media delete route returns 409 (with `usedBy`) while any project, post, or app page uses the file or one of its sizes: any string in a record containing its path, as is or percent-encoded (`src/lib/references.ts`, shared with `npm run check` and the snapshot).
+- [x] **Safe retry of creates** (S, Folio #16): a `POST` for an existing ID returns 200 with the stored record when it would have created exactly that record (`createdAt` is skipped when the request left it out). A different body, or a record edited since, still gets 409. No idempotency key was needed.
 
 ### Phase 4: Usability
 
-- [ ] **App index endpoint** (S, Folio #25): `GET /api/apps` listing app slugs and which pages exist, so Folio can stop keeping the app list in UserDefaults on each device (Folio task below).
+- [x] **App index endpoint** (S, Folio #25): `GET /api/apps` returns `[{ id, appName, pages: ['privacy-policy', 'support'] }]`, read from the folders, sorted by ID. `npm run snapshot` uses it for app IDs (falling back to the sitemap), and `npm run smoke` checks it (a WARN until it's deployed).
 - [x] **Bounded image sizes** (M, #25):
   - Uploads are stored at most 2560 px, plus `.w640.webp` and `.w1280.webp`, all staged and renamed together. Deleting an image deletes its sizes.
   - `npm run media:derive` backfills older images (run once on the server).
@@ -221,16 +221,15 @@ Folio's own audit is `Folio/AUDIT.md` (numbers below like "Folio #3" refer to it
   - **Drafts:** write and read failures are reported (unreadable drafts are kept aside) (#5); drafts include an unuploaded hero image, show offline when the item can't load, and save when the app goes to the background (#6).
   - **Media:** the ID locks when an upload starts and stays locked in drafts (#11); uploads removed before saving are deleted, and failed cleanup is reported as "saved" and retried (#12); drag reordering works in both directions, with Move Up/Down (#13); thumbnails use the server's 640 px copies (#25).
   - **Other:** cancelled first loads retry (#7), Keychain saves update in place (#17), privacy-policy dates are saved as the day picked (#18), Dynamic Type and labels (#19), Highlight Changed Lines only where it works and alt text on inserted images (#20), the incoming-network entitlement is gone (#22), and "Remove from List" for apps (#25). The duplicate macOS Settings tab is gone.
-- [ ] **Send the version on save** (S, after **Conditional writes** in Backend): send the `updatedAt` the editor loaded, and on 409 keep the draft and offer to reload or compare.
-  - Give 409 its own handling while doing this. Today `URLProcessor` turns every 409 into `APIError.conflict`, which always says "A resource with that ID already exists." That's right for creating a duplicate, wrong for an upload that would overwrite a file (the server's message is "File already exists…"), and will be wrong for a stale save. Keep the server's `error` text for 409s too (like `httpError`), and treat a version conflict as its own case.
-- [ ] **App list from the server** (S, after **App index endpoint** in Backend): replace the UserDefaults list.
-- [ ] **Left from the Folio audit** (M):
-  - One new-post (and new-project) draft per environment, so two windows creating posts at once share it (Folio #2). Fixing it needs a drafts list to find several.
-  - UI tests and CI for Folio (#21): the UI targets are still Xcode's templates.
-  - The app icon has no artwork (#22).
-  - `ProjectPreview.swift` holds `ProjectListRow`; rename it once your changes to it are committed (#22). `fetchPostNavs` / `fetchProjectNavs` have no callers (#22); remove them unless something will use them.
-  - `Helpers/Image+Data.swift` is now unused (the hero preview uses a downsampled thumbnail).
-- [ ] **Phase 2 compatibility** (S): the server now owns `readingTime`, `updatedAt`, and `id` (ignored if sent), drops unknown fields, and removes fields sent as `null`. Folio's payloads were checked against this and should be accepted as they are. Confirm by hand (see **Testing and deploying**), and update the Folio fakes if they echo back fields the server no longer stores.
+- [x] **Send the version on save** (S): editors send the `version` they loaded (`updatedAt ?? createdAt`, or an app page's `updatedAt`) with Publish and Delete, and lists send the listed item's version when deleting. On a version conflict, the editor saves the edits as a draft and reloads, then the stale-draft alert offers **Keep Draft** (the next Publish is based on the new version, and Highlight Changed Lines compares against it) or **Discard Draft**. Lists show the error and reload.
+  - 409s are now told apart by their body: `.versionConflict` (`current`), `.inUse` (`usedBy`), or `.conflict`, all with the server's message, so an upload over an existing file says so. Cleanup drops files the server says another item uses instead of retrying them on every save.
+- [x] **App list from the server** (S): the Apps tab is a `ContentListViewModel<AppSummary>` loaded from `GET /api/apps`, with loading, errors, refresh, and environment switching like the other lists. Rows show which pages exist. **Add App** opens a page-less app that stays until the next reload unless a page is saved. The old UserDefaults list is deleted, and **Remove from List** is gone.
+- [x] **Left from the Folio audit** (M), except the app icon:
+  - One draft per open new-item editor (Folio #2): `NewDraftSlots` gives a second window `dev.new-post-2`, and so on, and a new editor restores the first draft no other editor has open.
+  - UI tests and CI (#21): `FolioUITests` launches the app with `-ui-testing` (the test repositories' sample content, fresh settings and drafts) and checks the tabs, publishing an edit, and that list deletes ask first. They pass on the iPhone simulator. `.github/workflows/ci.yml` runs the unit tests, an iOS build, and the UI tests on `macos-26`, signing ad hoc. It hasn't run on GitHub yet.
+  - `ProjectPreview.swift` is now `ProjectListRow.swift`. `fetchPostNavs` / `fetchProjectNavs` and the nav models are removed, and so is `Helpers/Image+Data.swift`.
+- [ ] **App icon artwork** (S, Folio #22): the icon set is still empty. It needs your artwork (a 1024 px image, or an Icon Composer file).
+- [x] **Phase 2 compatibility** (S): checked against the server's schemas. The payloads match (dates are whole-second ISO 8601, cleared fields are `null`, server-owned fields are ignored), and the fakes now act like the server: no `updatedAt` on create, posts' `readingTime` computed, app pages' `updatedAt` set. Still confirm by hand (see **Testing and deploying**).
 - [ ] **Hikes tab** (M, Trail map feature): import a GPX file (from TrekPoint's share sheet or the Files app), preview it on a map, set a title and date, and upload it to the hikes API.
 - [ ] **Demo field** (S, "⌘R actually runs something" feature): edit a project's `demo` in the project form.
 
@@ -320,6 +319,21 @@ With both dev servers running, open `http://localhost:5173`.
   - Wide tables scroll.
 - [ ] Turn on Reduce Motion (System Settings → Accessibility → Display): the home page shows the name without typing it out, and nothing blinks or slides.
 - [ ] Check the tab titles on a few pages ("TrekPoint · Jordan Christensen", and so on).
+
+### October 31 batch (conflicts, media cleanup, app list, fresh lists)
+
+Deploy the backend before using the new Folio against Prod: the old server ignores the version header, but it has no `GET /api/apps`, so Folio's Apps tab shows "Couldn't Load Apps" there. The new server works with the old Folio (its writes are just unconditional).
+
+- [ ] **Backend:** after deploying, `npm run smoke -- https://jordan-christensen.com` shows `app list` as PASS with every app.
+- [ ] **Fresh lists (site):** open `/projects` in a browser tab, publish a change from Folio, then switch back to the tab: the change appears within a second or two without reloading. With the backend stopped, switching back keeps the list on screen.
+- [ ] **Conflicts (Folio, against Dev):** open the same post in two windows (or on the Mac and an iPhone). Publish an edit in one, then edit and Publish in the other: it asks "This post changed since your draft was saved". **Keep Draft** then Publish saves yours; **Discard Draft** shows the other edit. Try a project and a support page too.
+- [ ] **Delete conflicts:** edit a post in one window, then delete it from the other window's list without reloading: it refuses, explains, and reloads the list.
+- [ ] **Two new posts at once:** open New Post in two windows and type different titles. Close both, open New Post twice: each draft comes back.
+- [ ] **Apps tab:** it lists every app on Dev (and on Prod, after the deploy), with its pages. Add an app, create its privacy policy, and go back: it's listed. Add one and go back without creating a page: it's gone after a refresh.
+- [ ] **Media in use:** embed one post's image in another post (copy its `/media/…` path into the Markdown). Remove it from the first post and Publish: no cleanup error, and the image still shows in the second post. Then delete the first post: its folder keeps only that image (`ls public_html/media/posts/<id>`).
+- [ ] **Retried creates:** nothing to do by hand; it's covered by tests.
+- [ ] **UI tests on macOS:** run `FolioUITests` once from Xcode on My Mac and allow it to control the computer (it times out until then).
+- [ ] **Folio CI:** after the next push to `Folio-App`, check the Actions run. The `macos-26` runner's Xcode and simulator names are the likely things to adjust.
 
 ### Deploy (phases 1–5 together)
 

@@ -35,10 +35,12 @@ backend/
 │   │   ├── lock.ts           # withLock(): serializes writes per content type
 │   │   ├── logger.ts         # Buffered, rotating file logger
 │   │   ├── paths.ts          # ID/filename rules, resolveInside(), safe media names
+│   │   ├── references.ts     # Which content uses which media; item media cleanup on delete
 │   │   ├── regenerate.ts     # Index/nav regeneration (skips and reports bad records)
 │   │   ├── schemas.ts        # Request/record validation, update merging, reading time
 │   │   ├── site.ts           # sitemap.xml, feed.xml, and share pages (_meta/*.html)
-│   │   └── types.ts          # The API contract (the frontend re-exports these types)
+│   │   ├── types.ts          # The API contract (the frontend re-exports these types)
+│   │   └── versions.ts       # Conditional writes (X-Expected-Version) and create retries
 │   ├── middleware/
 │   │   ├── auth.ts           # Bearer token authentication middleware
 │   │   ├── errors.ts         # JSON 404 and error handler, CORS rejection, body limit
@@ -47,7 +49,7 @@ backend/
 │   │   ├── projects.ts       # CRUD for projects
 │   │   ├── posts.ts          # CRUD for blog posts
 │   │   ├── media.ts          # Media upload/delete
-│   │   └── apps.ts           # Privacy policy + support pages for iOS apps
+│   │   └── apps.ts           # App index, privacy policy + support pages for iOS apps
 │   └── scripts/
 │       ├── regenerate.ts     # npm run regen: rebuild indexes and site files, then exit
 │       ├── check.ts          # npm run check: read-only integrity report
@@ -193,6 +195,7 @@ Every write body is validated by `src/lib/schemas.ts` before anything is saved. 
 - **PUT** is a merge (it behaves like PATCH): omitted fields keep their stored values, and `null` on an optional field (`category`, a post's `heroImage` or `series`, `contactUrl`, `contactText`) **removes** it. `null` on a required field is a 400.
 - **Server-owned fields** (`id`, `updatedAt`, `readingTime`) are ignored if sent. The ID comes from the URL (or from the body on create) and can't be changed by PUT. **Unknown fields** are dropped and logged.
 - `createdAt` is editable, so content can be backdated.
+- **Conditional writes** (optional): see below. **Retried creates** get the stored record: see below.
 - **Formats:**
   - `createdAt` is an ISO 8601 date-time (`2025-01-31T12:00:00Z`, with optional fractional seconds or offset). `lastUpdated` is a calendar date (`2025-01-31`).
   - URLs (`heroImage`, `media[].url`, link values, `contactUrl`) are a site-relative path starting with `/`, or an absolute URL. `http(s)` is accepted everywhere; `mailto:` is also accepted for links and `contactUrl`.
@@ -204,6 +207,24 @@ A validation failure returns 400 with every problem in one message, for example:
 { "error": "Invalid project: title is required; status must be one of: active, in-progress, archived" }
 ```
 
+### Conditional writes
+
+So a save from one device can't silently overwrite a save from another, `PUT` and `DELETE` on projects, posts, and app pages accept an `X-Expected-Version` header (`src/lib/versions.ts`):
+
+- A record's **version** is its `updatedAt`, or its `createdAt` if it has never been updated. App pages have no `createdAt`; they get `updatedAt` on every create and update, so only pages last saved before October 31, 2026 have no version.
+- The client sends the version it loaded. If the stored record's version differs, the write is refused with **409** and the current record:
+  ```json
+  { "error": "This post was changed on the server (at 2026-10-31T18:02:11.482Z) after you opened it. Reload it to see the current version.", "current": { "id": "my-post", … } }
+  ```
+  A record with no version counts as changed when a version is sent.
+- A value with fractional seconds is compared to the millisecond. One without (Swift's `.iso8601` coding strategy drops them) is compared to the second, so `2026-10-31T18:02:11Z` matches `2026-10-31T18:02:11.482Z`. Two saves within the same second can't be told apart that way.
+- The comparison runs inside the write's `withLock`, so it can't race another write in the same process.
+- Without the header, writes are unconditional, as before. A header that isn't an ISO 8601 date-time gets 400.
+
+### Retrying a create
+
+If a create was saved but its response was lost, the client's retry used to get 409. Now a `POST` for an ID that already exists returns **200** with the stored record when the request would have created exactly that record: every schema field (with defaults filled in) matches what's stored, except `createdAt` when the request left it out (its default is "now"). Anything else, including a record edited since, is still a 409. There's no idempotency key, so two identical creates from different places look the same, which is harmless: they'd have made the same record.
+
 ### Errors
 
 Every error response is JSON, `{ "error": "<message>" }`, without stack traces (server errors are logged with theirs):
@@ -211,7 +232,7 @@ Every error response is JSON, `{ "error": "<message>" }`, without stack traces (
 - `401`: a missing or wrong token.
 - `403`: a request from an origin that isn't in the CORS allowlist.
 - `404`: unknown routes, missing content, and invalid IDs on GET.
-- `409`: it already exists.
+- `409`: it already exists (a create), the record changed since the version the client sent (a conditional write; the body has `current`), or a media file is still in use (a media delete; the body has `usedBy`).
 - `413`: the body is over 1 MB.
 - `415`: an unsupported image format.
 - `500`: anything unexpected.
@@ -231,7 +252,7 @@ Returns `200 {"status":"ok"}` when every storage directory is readable and writa
 | GET | `/api/projects/:id` | — | Fetch full project detail |
 | POST | `/api/projects` | ✓ | Create a new project (requires `id`, `title`, `tagline`, `status`) |
 | PUT | `/api/projects/:id` | ✓ | Update a project (merges with existing, sets `updatedAt`) |
-| DELETE | `/api/projects/:id` | ✓ | Delete a project |
+| DELETE | `/api/projects/:id` | ✓ | Delete a project and its unused media |
 
 **`ProjectDetail` shape:**
 ```json
@@ -260,6 +281,8 @@ Returns `200 {"status":"ok"}` when every storage directory is readable and writa
 
 **`ProjectNav`** (returned by nav endpoint) contains only `id`, `title`, `status`, `featured`.
 
+**Deleting** a project or post also deletes its media folder (`media/projects/<id>/`), in the `media` lock after the record is gone (`deleteUnusedItemMedia` in `src/lib/references.ts`). Files that other content still uses are kept, with a warning in the log, since deleting them would break that page; the folder stays while they're there. A failed cleanup is logged and doesn't fail the request.
+
 ---
 
 ### Posts — `/api/posts`
@@ -271,7 +294,7 @@ Returns `200 {"status":"ok"}` when every storage directory is readable and writa
 | GET | `/api/posts/:id` | — | Fetch full post detail |
 | POST | `/api/posts` | ✓ | Create a new post (requires `id`, `title`; `readingTime` auto-calculated) |
 | PUT | `/api/posts/:id` | ✓ | Update a post (merges, sets `updatedAt`, recalculates `readingTime`) |
-| DELETE | `/api/posts/:id` | ✓ | Delete a post |
+| DELETE | `/api/posts/:id` | ✓ | Delete a post and its unused media |
 
 **`PostDetail` shape:**
 ```json
@@ -338,6 +361,12 @@ Successful response:
 
 Returns `409 Conflict` if the file already exists and `overwrite` is not `"true"`.
 
+**Delete** removes the file, and for a main image its smaller sizes. It's refused with **409** while any content uses the file or one of its sizes, so a cleanup in one item can't break another item's page:
+```json
+{ "error": "This file is still used by post \"hello\". Remove it from there first.", "usedBy": ["post \"hello\""] }
+```
+"Uses" is deliberately broad (`findUsers` in `src/lib/references.ts`): any string in any project, post, or app page that contains the file's path, as is or percent-encoded. That covers hero images, galleries, Markdown (including `<…>` links with spaces), absolute URLs, and fields added later. A file that isn't valid JSON is searched as text. The check reads every record, without the content locks, so a save that adds a reference at the same moment as the delete could still lose; with one author that's accepted.
+
 ---
 
 ### Apps — `/api/apps`
@@ -346,6 +375,7 @@ For hosting privacy policy and support pages for iOS/macOS apps submitted to the
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
+| GET | `/api/apps` | — | List apps and which pages they have |
 | GET | `/api/apps/:id/privacy-policy` | — | Fetch privacy policy |
 | POST | `/api/apps/:id/privacy-policy` | ✓ | Create privacy policy (requires `appName`, `lastUpdated`, `content`) |
 | PUT | `/api/apps/:id/privacy-policy` | ✓ | Update privacy policy (merges) |
@@ -363,7 +393,8 @@ For hosting privacy policy and support pages for iOS/macOS apps submitted to the
   "lastUpdated": "2025-01-01",
   "content": "Markdown body",
   "contactUrl": "https://...",
-  "contactText": "Visit support site"
+  "contactText": "Visit support site",
+  "updatedAt": "2026-10-31T18:02:11.482Z"
 }
 ```
 
@@ -376,11 +407,20 @@ For hosting privacy policy and support pages for iOS/macOS apps submitted to the
   "subtitle": "Free text subtitle shown below the heading",
   "content": "Markdown body",
   "contactUrl": "https://...",
-  "contactText": "Visit support site"
+  "contactText": "Visit support site",
+  "updatedAt": "2026-10-31T18:02:11.482Z"
 }
 ```
 
-Files are stored at `data/apps/<id>/privacy-policy.json` and `data/apps/<id>/support.json`. No index or nav files — these pages are not listed anywhere, only directly accessed by URL.
+`updatedAt` is server-owned: set on every create and update, and ignored if sent. Pages last saved before October 31, 2026 don't have it.
+
+Files are stored at `data/apps/<id>/privacy-policy.json` and `data/apps/<id>/support.json`. There are no index or nav files. The site reaches these pages only by URL.
+
+**`GET /api/apps`** lists the apps (for Folio and `npm run snapshot`), read from the folders on each request, sorted by ID. Folders whose names aren't valid app IDs, and folders without either page, are left out:
+```json
+[{ "id": "trekpoint", "appName": "TrekPoint", "pages": ["privacy-policy", "support"] }]
+```
+`appName` comes from the privacy policy, else the support page, else the ID (when the page can't be read).
 
 ---
 
@@ -466,7 +506,8 @@ The dev server runs on port 3001. The frontend Vite dev server proxies `/api` an
 - `media`: orientation, names, sizes, the 2560 px cap, animation, format checks, delete containment.
 - `site`: sitemap, feed, share pages, escaping.
 - `bootstrap`: first run from nothing.
-- `snapshot`: the content backup against a running local server (app IDs from the sitemap, legacy media names, missing files).
+- `writes`: conditional writes, create retries, app page versions, the app index, and media cleanup and in-use refusal on delete.
+- `snapshot`: the content backup against a running local server (app IDs, legacy media names, missing files). The script gets app IDs from `GET /api/apps`, falling back to the sitemap for a server deployed before that existed.
 
 Add a regression test with every fix. CI (`.github/workflows/ci.yml`) runs the type-check, tests, build, and audit.
 

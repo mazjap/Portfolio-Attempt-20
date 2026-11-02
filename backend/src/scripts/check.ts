@@ -5,6 +5,7 @@ import { join, relative } from 'path';
 import { appsDir, fileExists, mediaDir, postsDir, projectsDir, readJSON } from '../lib/files.js';
 import { derivativePaths, isDerivative } from '../lib/images.js';
 import { isValidContentId, isValidSlug } from '../lib/paths.js';
+import { mediaPathsIn, normalizeMediaPath } from '../lib/references.js';
 import { loadRecords, postProjections, projectProjections, recordFiles } from '../lib/regenerate.js';
 import { listingProblems, parse, postSchema, privacyPolicySchema, projectSchema, supportSchema } from '../lib/schemas.js';
 import type { PostDetail, ProjectDetail } from '../lib/types.js';
@@ -13,31 +14,10 @@ type Level = 'error' | 'warning' | 'info';
 const issues: { level: Level; where: string; message: string }[] = [];
 const report = (level: Level, where: string, message: string) => issues.push({ level, where, message });
 
-/** Every `/media/…` path the content uses: `heroImage`, `media[].url`, and links in Markdown bodies. */
+/** Every `/media/…` path the content uses (see mediaPathsIn), decoded and NFC-normalized. */
 const referencedMedia = new Set<string>();
-// NFC on both sides: macOS can hand back a filename in a different Unicode form than the content stores.
-function addReference(url: string): void {
-  let decoded = url;
-  try {
-    decoded = decodeURIComponent(url);
-  } catch {}
-  referencedMedia.add(decoded.normalize('NFC'));
-}
 function collectMediaReferences(record: unknown): void {
-  if (typeof record !== 'object' || record === null) return;
-  const r = record as { heroImage?: unknown; media?: unknown; content?: unknown; description?: unknown };
-  // Exact strings first: these can contain spaces.
-  if (typeof r.heroImage === 'string' && r.heroImage.startsWith('/media/')) addReference(r.heroImage);
-  if (Array.isArray(r.media)) {
-    for (const item of r.media) {
-      const url = (item as { url?: unknown })?.url;
-      if (typeof url === 'string' && url.startsWith('/media/')) addReference(url);
-    }
-  }
-  for (const body of [r.content, r.description]) {
-    if (typeof body !== 'string') continue;
-    for (const match of body.matchAll(/\/media\/[^\s"'()<>]+/g)) addReference(match[0]);
-  }
+  for (const path of mediaPathsIn(record)) referencedMedia.add(normalizeMediaPath(path));
 }
 
 async function checkContent(kind: 'projects' | 'posts', dir: string, schema: typeof projectSchema): Promise<void> {

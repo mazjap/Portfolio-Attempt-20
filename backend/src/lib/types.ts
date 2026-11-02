@@ -61,6 +61,8 @@ export interface AppPrivacyPolicy {
   content: string;
   contactUrl?: string;
   contactText?: string;
+  /** Set by the server on every save. Pages saved before October 31, 2026 don't have one until they're next saved. */
+  updatedAt?: string;
 }
 
 export interface AppSupport {
@@ -71,4 +73,17 @@ export interface AppSupport {
   content: string;
   contactUrl?: string;
   contactText?: string;
+  /** Set by the server on every save. Pages saved before October 31, 2026 don't have one until they're next saved. */
+  updatedAt?: string;
+}
+
+export type AppPageType = 'privacy-policy' | 'support';
+
+/** An entry of `GET /api/apps`. */
+export interface AppSummary {
+  id: string;
+  /** From the privacy policy, else the support page (the ID if neither has one). */
+  appName: string;
+  /** The pages that exist, in this order: `privacy-policy`, `support`. */
+  pages: AppPageType[];
 }

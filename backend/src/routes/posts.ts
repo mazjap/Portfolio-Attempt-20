@@ -9,6 +9,8 @@ import { isValidContentId, resolveInside } from '../lib/paths.js';
 import { regeneratePosts } from '../lib/regenerate.js';
 import { applyUpdate, calculateReadingTime, formatErrors, parse, postSchema } from '../lib/schemas.js';
 import { logger } from '../lib/logger.js';
+import { deleteUnusedItemMedia } from '../lib/references.js';
+import { expectedVersion, isRepeatedCreate, isStale, staleMessage } from '../lib/versions.js';
 import { refreshSiteFiles } from '../lib/site.js';
 import type { PostDetail, PostPreview, PostNav } from '../lib/types.js';
 
@@ -77,6 +79,13 @@ router.post('/', authenticate, async (req, res) => {
     await withLock('posts', async () => {
       const filePath = resolveInside(postsDir, `${id}.json`);
       if (await fileExists(filePath)) {
+        // A retry of a create whose response was lost gets the record it made, not a 409.
+        const existing = await readJSON<PostDetail>(filePath).catch(() => null);
+        if (isRepeatedCreate(Object.keys(postSchema), parsed.value, req.body, existing)) {
+          logger.info(`Create post ${id}: repeated an earlier identical create; returned the stored post`);
+          res.status(200).json(existing);
+          return;
+        }
         logger.warn(`Create post failed: ${id} already exists`);
         res.status(409).json({ error: 'Post already exists' });
         return;
@@ -97,6 +106,11 @@ router.post('/', authenticate, async (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
   try {
+    const expected = expectedVersion(req);
+    if (!expected.ok) {
+      res.status(400).json({ error: expected.error });
+      return;
+    }
     const parsed = parse(postSchema, req.body, 'update');
     if (!parsed.ok) {
       logger.warn(`Update post ${id} failed: ${parsed.errors.join('; ')}`);
@@ -113,6 +127,11 @@ router.put('/:id', authenticate, async (req, res) => {
         return;
       }
       const existing = await readJSON<PostDetail>(filePath);
+      if (isStale(expected.version, existing)) {
+        logger.warn(`Update post ${id} refused: it changed after ${expected.version}`);
+        res.status(409).json({ error: staleMessage('post', existing), current: existing });
+        return;
+      }
       const updated = { ...applyUpdate(existing, parsed), id, updatedAt: new Date().toISOString() };
       updated.readingTime = calculateReadingTime(updated.content ?? '');
       await writeJSON(filePath, updated);
@@ -129,6 +148,11 @@ router.put('/:id', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   const { id } = req.params;
   try {
+    const expected = expectedVersion(req);
+    if (!expected.ok) {
+      res.status(400).json({ error: expected.error });
+      return;
+    }
     await withLock('posts', async () => {
       const filePath = resolveInside(postsDir, `${id}.json`);
       if (!await fileExists(filePath)) {
@@ -136,8 +160,17 @@ router.delete('/:id', authenticate, async (req, res) => {
         res.status(404).json({ error: 'Post not found' });
         return;
       }
+      if (expected.version !== null) {
+        const existing = await readJSON<PostDetail>(filePath);
+        if (isStale(expected.version, existing)) {
+          logger.warn(`Delete post ${id} refused: it changed after ${expected.version}`);
+          res.status(409).json({ error: staleMessage('post', existing), current: existing });
+          return;
+        }
+      }
       await unlink(filePath);
       await regenerateAfterWrite(`Deleting post ${id}`);
+      await withLock('media', () => deleteUnusedItemMedia('posts', id));
       logger.info(`Deleted post: ${id}`);
       res.json({ success: true });
     });

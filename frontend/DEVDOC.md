@@ -188,7 +188,8 @@ Lists and nav (`useProjects`, `usePosts`, `useProjectNav`, `usePostNav`) load th
 
 - Successes are stored in `localStorage` for 5 minutes under versioned keys (`cache:v1:projects`, …). They're validated when read back (an array of items with string `id` and `title`), so old or malformed entries are ignored. Entries from older versions of the site are deleted.
 - A fresh entry renders immediately with no request. A stale one renders while a new copy loads (stale-while-revalidate). With no entry, there's a loading state.
-- Failures are never cached. A list that fails with nothing cached shows the decorative `CrashReport` plus a plain explanation and **Try Again** (`ListError`).
+- Returning to the tab (window `focus`, or `visibilitychange` to visible, via `onPageReturn()` in `cache.ts`) refetches every mounted, enabled list in the background, even a fresh one, so a page left open shows what was published from Folio meanwhile. Lists fetched in the last 10 seconds (`REVALIDATE_ON_RETURN_MS`) are skipped, and the focus and visibility events of one tab switch share a request. The current list stays on screen while it reloads, and a failed refetch keeps it (no error). Detail pages don't do this.
+- Failures are never cached. A failed refetch falls back to the cached entry, if there is one. A list that fails with nothing cached shows the decorative `CrashReport` plus a plain explanation and **Try Again** (`ListError`).
 - Identical requests in flight share one fetch: the sidebar and the console both use the nav.
 - Every `localStorage` access is in `try`/`catch`, since it throws in some private modes.
 
