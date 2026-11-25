@@ -109,8 +109,9 @@ Folio depends on the current write semantics, so don't break them without updati
 ### Personality features
 
 These are deliberate, so keep them working when you change nearby code:
-- `Navbar` shortcuts: ⌘B shows "Build Succeeded" and ⌘⇧K shows "Clean Build Folder". They're ignored while typing. ⌘R deliberately isn't intercepted (browsers need it to reload); the planned "⌘R actually runs something" feature would reclaim it only on pages with a demo.
-- The `>_` console offers `ls`, `cd`, `open`, `whoami`, `contact`, and tab completion.
+- Keyboard shortcuts (`useShortcutToasts` in `src/hooks`, rules in `src/lib/shortcuts.ts`): ⌘B "Build Succeeded", ⌘⇧K "Clean Build Folder", ⌃⌘J "Jump to Definition", ⌃⌘Y "Continue", plus the Konami code. They're Mac-only, ignored while typing, and exact about modifiers. ⌘R deliberately isn't intercepted (browsers need it to reload); the planned "⌘R actually runs something" feature would reclaim it only on pages with a demo. Check any new shortcut against Chrome, Safari, and Firefox first.
+- The `>_` console offers `ls`, `cd`, `open`, `whoami`, `contact`, `pet koda`, `man jordan`, `history`, `shortcuts`, `exit`, a fake `vim` that `:q` won't leave (`:q!` or Escape does), and tab completion for those. Hidden jokes (`sudo`, `git`, `xcodebuild`, `make`, `fortune`, `rm`, …) live in `src/lib/consoleCommands.ts` and stay out of `help` and completion. Keep jokes friendly, add a test for each, and keep `man jordan` to facts already on the site.
+- A greeting for people who open the browser's developer console (`src/lib/greeting.ts`, called from `main.tsx`).
 - `CrashReport` is a joke macOS crash log shown when a list fails to load.
 - `NotFound` is a fake compiler error.
 - The home page has a typed-name animation over a code minimap.
