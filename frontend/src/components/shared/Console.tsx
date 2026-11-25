@@ -3,6 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { useProjectNav } from '../../hooks/useProjects';
 import { usePostNav } from '../../hooks/usePosts';
 import { prefersReducedMotion } from '../../lib/motion';
+import {
+  CONTACT_LINES,
+  EXTRA_COMPLETIONS,
+  HELP_LINES,
+  VIM_LEAVE_MESSAGE,
+  WHOAMI_LINES,
+  runExtraCommand,
+  runVimLine,
+  type VimSession,
+} from '../../lib/consoleCommands';
 
 interface Line {
   type: 'input' | 'output' | 'error';
@@ -15,7 +25,7 @@ const HOME_PATH = '/Users/Jordan/Developer/definitely-final-portfolio-v3-REAL';
 
 function getTabCandidates(input: string, cwd: string, projectIds: string[], postIds: string[]): string[] {
   if (!input) {
-    return ['help', 'ls', 'pwd', 'cd', 'open', 'whoami', 'contact', 'clear'];
+    return ['help', 'ls', 'pwd', 'cd', 'open', 'whoami', 'contact', 'clear', ...EXTRA_COMPLETIONS];
   }
   if (input.startsWith('cd ')) {
     const partial = input.slice(3);
@@ -32,7 +42,7 @@ function getTabCandidates(input: string, cwd: string, projectIds: string[], post
     const partial = input.slice(5);
     return [...projectIds, ...postIds, '.'].filter(id => id.startsWith(partial) && id !== input.slice(5)).map(id => `open ${id}`);
   }
-  const cmds = ['help', 'ls', 'ls projects', 'ls posts', 'pwd', 'cd projects', 'cd posts', 'cd ..', 'open .', 'open', 'whoami', 'contact', 'clear'];
+  const cmds = ['help', 'ls', 'ls projects', 'ls posts', 'pwd', 'cd projects', 'cd posts', 'cd ..', 'open .', 'open', 'whoami', 'contact', 'clear', ...EXTRA_COMPLETIONS];
   return cmds.filter(c => c.startsWith(input) && c !== input);
 }
 
@@ -40,6 +50,8 @@ export default function Console() {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ConsoleMode>('float');
   const [cwd, setCwd] = useState('');
+  // Set while the fake vim (`vim`) has the console: lines typed are vim commands until it's left.
+  const [vim, setVim] = useState<VimSession | null>(null);
   // The same cached nav lists the sidebar uses; nothing is fetched until the console is opened.
   const { nav: projectNav } = useProjectNav({ enabled: open });
   const { nav: postNav } = usePostNav({ enabled: open });
@@ -47,7 +59,9 @@ export default function Console() {
   const postIds = (postNav ?? []).map(p => p.id);
   const [lines, setLines] = useState<Line[]>([{ type: 'output', text: 'Type "help" for available commands.' }]);
   const [input, setInput] = useState('');
+  // Shell history (what `history` lists). Lines typed inside vim are kept apart, so `history` stays a shell's.
   const [history, setHistory] = useState<string[]>([]);
+  const [vimHistory, setVimHistory] = useState<string[]>([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -65,6 +79,8 @@ export default function Console() {
   /** Closes the console and puts focus back on the button that opens it. */
   const close = useCallback(() => {
     setOpen(false);
+    setVim(null);
+    setVimHistory([]);
     toggleRef.current?.focus();
   }, []);
 
@@ -75,10 +91,23 @@ export default function Console() {
   const run = useCallback((raw: string) => {
     const cmd = raw.trim();
     if (!cmd) return;
-    setLines(prev => [...prev, { type: 'input', text: `> ${cmd}` }]);
-    setHistory(h => [cmd, ...h]);
+    // In vim, every line is a vim command, except `clear`, which stays a way out.
+    const inVim = vim !== null && cmd !== 'clear';
+    setLines(prev => [...prev, { type: 'input', text: inVim ? `:${cmd.replace(/^:+/, '')}` : `> ${cmd}` }]);
+    if (inVim) setVimHistory(h => [cmd, ...h]);
+    else setHistory(h => [cmd, ...h]);
     setHistoryIdx(-1);
     setInput('');
+
+    if (inVim) {
+      const out = runVimLine(cmd, vim);
+      out.lines.forEach(line => push(line, out.type));
+      if (out.leave) {
+        setVim(null);
+        setVimHistory([]);
+      }
+      return;
+    }
 
     // ls
     if (cmd === 'ls') {
@@ -190,59 +219,52 @@ export default function Console() {
     }
     // whoami
     else if (cmd === 'whoami') {
-      push('jordan christensen');
-      push('iOS Developer from Utah. I love tinkering and going on hikes with my pup named Koda.');
-      push('Currently: building TrekPoint, writing too much QMK firmware.');
-      push('Previously: building this portfolio website.');
+      WHOAMI_LINES.forEach(line => push(line));
     }
     // contact
     else if (cmd === 'contact') {
-      push('Email:   jordan.c4922@gmail.com');
-      push('GitHub:  github.com/mazjap');
+      CONTACT_LINES.forEach(line => push(line));
     }
     // help
     else if (cmd === 'help') {
-      push('Available commands:');
-      push('  ls                  — list directories or contents');
-      push('  ls projects         — list all projects');
-      push('  ls posts            — list all blog posts');
-      push('  pwd                 — print working directory');
-      push('  cd <dir>            — change directory (projects, posts, ..)');
-      push('  open <id>           — navigate to a project or post');
-      push('  open .              — open current directory');
-      push('  (Tab completes commands and names; Esc closes)');
-      push('  whoami              — about jordan christensen');
-      push('  contact             — contact info');
-      push('  clear               — clear console');
+      HELP_LINES.forEach(line => push(line));
     }
     // clear
     else if (cmd === 'clear') {
       setLines([]);
+      setVim(null);
+      setVimHistory([]);
     }
-    // easter egg
-    else if (/^(sudo\s+)?rm\s+-rf\s+[/~*]/.test(cmd)) {
-      push('nice try.', 'error');
-    }
-    // unknown
+    // history, shortcuts, exit, and the hidden jokes (src/lib/consoleCommands.ts)
     else {
-      push(`zsh: command not found: ${cmd}`, 'error');
+      const extra = runExtraCommand(cmd, { history: [...history].reverse().concat(cmd) });
+      if (!extra) {
+        push(`zsh: command not found: ${cmd}`, 'error');
+      } else {
+        extra.lines.forEach(line => push(line, extra.type));
+        if (extra.vim) setVim(extra.vim);
+        if (extra.exit) close();
+      }
     }
-  }, [push, navigate, cwd, projectIds, postIds]);
+  }, [push, close, navigate, cwd, history, vim, projectIds, postIds]);
 
   function handleKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
+      // `exit` moves focus to the toggle button: without this, the same Enter would then press it and reopen the console.
+      e.preventDefault();
       run(input);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      const idx = Math.min(historyIdx + 1, history.length - 1);
+      const recall = vim ? vimHistory : history;
+      const idx = Math.min(historyIdx + 1, recall.length - 1);
       setHistoryIdx(idx);
-      setInput(history[idx] ?? '');
+      setInput(recall[idx] ?? '');
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       const idx = Math.max(historyIdx - 1, -1);
       setHistoryIdx(idx);
-      setInput(idx === -1 ? '' : history[idx]);
-    } else if (e.key === 'Tab' && !e.shiftKey && input !== '') {
+      setInput(idx === -1 ? '' : (vim ? vimHistory : history)[idx]);
+    } else if (e.key === 'Tab' && !e.shiftKey && input !== '' && !vim) {
       // Completion only with something typed: Shift+Tab, or Tab on an empty line, moves focus as usual.
       e.preventDefault();
       const candidates = getTabCandidates(input, cwd, projectIds, postIds);
@@ -252,7 +274,16 @@ export default function Console() {
         push(candidates.join('    '));
       }
     } else if (e.key === 'Escape') {
-      close();
+      if (vim) {
+        // Escape gets out of vim, not out of the console.
+        setVim(null);
+        setVimHistory([]);
+        setHistoryIdx(-1);
+        setInput('');
+        push(VIM_LEAVE_MESSAGE);
+      } else {
+        close();
+      }
     }
   }
 
@@ -276,7 +307,13 @@ export default function Console() {
     <>
       <button
         ref={toggleRef}
-        onClick={() => setOpen(o => !o)}
+        onClick={() => {
+          if (open) {
+            setVim(null);
+            setVimHistory([]);
+          }
+          setOpen(o => !o);
+        }}
         className="xcode-dark-tokens fixed bottom-4 right-4 z-50 w-9 h-9 rounded-lg bg-xcode-surface dark:bg-xcode-surface border border-xcode-border-light dark:border-xcode-border flex items-center justify-center text-xcode-muted hover:text-xcode-accent hover:border-xcode-accent transition-all shadow-lg font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-xcode-accent"
         title="Open console"
         aria-label="Developer console"
@@ -312,7 +349,7 @@ export default function Console() {
                 aria-pressed={mode === 'fullscreen'}
               />
             </div>
-            <span className="text-xs font-mono text-xcode-muted ml-2">Terminal — zsh</span>
+            <span className="text-xs font-mono text-xcode-muted ml-2">Terminal — {vim ? 'vim' : 'zsh'}</span>
           </div>
 
           <div
@@ -324,13 +361,13 @@ export default function Console() {
             {lines.map((line, i) => (
               <div
                 key={i}
-                className={
+                className={`whitespace-pre-wrap break-words ${
                   line.type === 'input'
                     ? 'text-xcode-accent'
                     : line.type === 'error'
                     ? 'text-xcode-red'
                     : 'text-xcode-text'
-                }
+                }`}
               >
                 {line.text || <span>&nbsp;</span>}
               </div>
@@ -340,7 +377,7 @@ export default function Console() {
 
           <div className="bg-[#1d1f21] border-t border-xcode-border flex items-center px-3 py-2 gap-2 focus-within:ring-1 focus-within:ring-inset focus-within:ring-xcode-accent/60">
             <span className="font-mono text-xs text-xcode-green flex-shrink-0 whitespace-nowrap">
-              {promptPath}&nbsp;$
+              {vim ? ':' : <>{promptPath}&nbsp;$</>}
             </span>
             <input
               ref={inputRef}
