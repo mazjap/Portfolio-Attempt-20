@@ -335,6 +335,11 @@ Deploy the backend before using the new Folio against Prod: the old server ignor
 - [ ] **UI tests on macOS:** run `FolioUITests` once from Xcode on My Mac and allow it to control the computer (it times out until then).
 - [ ] **Folio CI:** after the next push to `Folio-App`, check the Actions run. The `macos-26` runner's Xcode and simulator names are the likely things to adjust.
 
+### November 25 batch (GitHub issues)
+
+- [ ] **Project card minimap (#5):** on `/projects`, cards with a hero image (TrekPoint, this portfolio, Flask Master) show no minimap. A code project with no image, or whose image fails to load (SwiftNES), shows the `.swift` placeholder and the minimap, with its star on the left if featured. Check light and dark.
+- [ ] **Decision: SwiftNES's hero image.** Its `heroImage` is `/media/projects/nes-emulator/hero.jpg`, which returns 404 on the live site (and in the local copy). The card's fallback covers it for now. The project's detail page (`ProjectDetail.tsx`, which shows `heroImage` when there's no media) also still requests the missing file; it renders nothing visible (empty `alt`), but it's another reason to fix the data. Either upload a hero in Folio or clear the field.
+
 ### Deploy (phases 1–5 together)
 
 Deployed October 29, 2026. Checked items were confirmed against the live site with read-only requests (`npm run smoke` passed every required check).

@@ -294,7 +294,7 @@ Each project card determines a "file extension" from its category:
 - `"Hardware"` → `.phys` (green)
 - Anything else → no extension
 
-The extension drives both the color accent and a small decorative `Minimap` (seeded from the project ID) shown in the top-right of the hero image area for code projects. Featured projects show a `★` in the top-left, so the two don't overlap. The mapping lives in `src/lib/category.ts` and is shared with `ProjectDetail`.
+The extension drives the color accent, and for code projects (`.ts`, `.swift`) with no hero image (or one that fails to load) it also drives a small decorative `Minimap` (seeded from the project ID) in the top-right of the hero area, next to the centered `.ext` placeholder. A project with a hero image shows the image alone, with no minimap. If the image fails to load (a dangling URL), the card drops it, using `ResponsiveImage`'s `onError` (which fires only after its own `srcset` → `src` fallback has failed too), and falls back to the placeholder and minimap; the failed URL is kept in state, so a different `heroImage` is tried again. Featured projects show a `★` in the top-left, so it never overlaps the minimap. The mapping lives in `src/lib/category.ts` and is shared with `ProjectDetail`.
 
 The card is one real link: the title's `<Link>` stretches over the whole card with an `::after` overlay. It's keyboard-focusable (with a ring on the card) and supports open-in-new-tab and copy-link. Hero images use `ResponsiveImage` with `sizes` matching the grid.
 
