@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useSyncExternalStore, memo, Fragment } from 'react';
+import { useState, useEffect, useRef, useCallback, memo, Fragment } from 'react';
+import { useIsXl } from '../../hooks/useIsXl';
 import { prefersReducedMotion } from '../../lib/motion';
 
 type ElType = 'heading' | 'paragraph' | 'list' | 'image' | 'code' | 'blockquote' | 'hr' | 'table';
@@ -33,15 +34,6 @@ function hasScannedAncestor(el: Element, root: Element): boolean {
 
 const HEADING_WIDTHS = ['80%', '65%', '52%', '42%'];
 const LINE_STRIDE = 4; // 2px bar + 2px gap
-
-// The minimap only shows at xl (1280px) and up; below that it does no work at all.
-const XL = '(min-width: 1280px)';
-function subscribeToXl(onChange: () => void) {
-  const query = window.matchMedia(XL);
-  query.addEventListener('change', onChange);
-  return () => query.removeEventListener('change', onChange);
-}
-const isXl = () => window.matchMedia(XL).matches;
 
 function scanBlocks(root: HTMLElement): ContentEl[] {
   const found: ContentEl[] = [];
@@ -197,7 +189,8 @@ const Bars = memo(function Bars({ elements, scale }: { elements: ContentEl[]; sc
 });
 
 export default function ScrollMinimap({ contentRef, contentKey }: Props) {
-  const visible = useSyncExternalStore(subscribeToXl, isXl, () => false);
+  // The minimap only shows at xl (1280px) and up; below that it does no work at all.
+  const visible = useIsXl();
   const [scrollY, setScrollY] = useState(0);
   const [totalH, setTotalH] = useState(1);
   const [viewH, setViewH] = useState(1);

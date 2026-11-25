@@ -1,9 +1,10 @@
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
+import { useIsXl } from '../../hooks/useIsXl';
 import ResponsiveImage from './ResponsiveImage';
 
 interface Props {
@@ -73,6 +74,33 @@ function Code({ className: cls, children }: { className?: string; children?: Rea
   );
 }
 
+/**
+ * An image in the article. The scroll minimap (shown from 1280 px up) measures the article, so an
+ * image that has no height until it loads moves everything below it, and every bar in the minimap,
+ * the moment it does. So there it loads eagerly (the stored 640/1280 px sizes keep that cheap), and
+ * the browser still decides how urgent each fetch is: it boosts an image that is in view. Below that
+ * width there is no minimap, so it stays lazy and a phone doesn't download a long post's images up
+ * front. Either way it holds a 4:3
+ * box until it knows its real shape (most photos are 4:3; `auto` switches to the real ratio on
+ * load), so the page doesn't jump either. An image that fails to load drops the box and shows its
+ * alt text instead of leaving a blank gap.
+ */
+function MarkdownImage({ src, alt }: { src: string; alt?: string }) {
+  const [failed, setFailed] = useState(false);
+  const minimapShown = useIsXl();
+  const reserve = failed ? '' : ' aspect-[auto_4/3] bg-xcode-surface-light dark:bg-xcode-surface';
+  return (
+    <ResponsiveImage
+      src={src}
+      alt={alt ?? ''}
+      sizes="(min-width: 768px) 680px, 100vw"
+      loading={minimapShown ? 'eager' : 'lazy'}
+      onError={() => setFailed(true)}
+      className={`rounded-lg w-full my-4 object-cover${reserve}`}
+    />
+  );
+}
+
 const components: Components = {
   h1: heading('h1', 'text-2xl font-semibold text-xcode-text-light dark:text-xcode-text mt-8 mb-4'),
   h2: heading('h2', 'text-xl font-semibold text-xcode-text-light dark:text-xcode-text mt-6 mb-3'),
@@ -120,10 +148,8 @@ const components: Components = {
     </td>
   ),
   hr: () => <hr className="border-xcode-border-light dark:border-xcode-border my-6" />,
-  img: ({ src, alt }) =>
-    typeof src === 'string' ? (
-      <ResponsiveImage src={src} alt={alt ?? ''} sizes="(min-width: 768px) 680px, 100vw" className="rounded-lg w-full my-4 object-cover" />
-    ) : null,
+  // Keyed by src, so a different image starts without the previous one's failure.
+  img: ({ src, alt }) => (typeof src === 'string' ? <MarkdownImage key={src} src={src} alt={alt} /> : null),
   strong: ({ children }) => (
     <strong className="font-semibold text-xcode-text-light dark:text-xcode-text">{children}</strong>
   ),

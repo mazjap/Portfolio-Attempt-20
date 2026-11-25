@@ -279,7 +279,7 @@ All markdown is rendered via `ReactMarkdown` with custom component overrides for
 - **Headings** get IDs from `rehype-slug` and a `#` link on hover or focus (`scroll-mt-16` keeps them clear of the sticky navbar).
 - `ol` keeps its `start` attribute.
 - Tables sit in a horizontally scrolling box.
-- Images use `ResponsiveImage` (lazy, with `srcset`).
+- Images use `ResponsiveImage` (with `srcset`). A lazy image has no height until it loads, so the page jumped as the reader reached each one, and the scroll minimap rescaled every bar when it did (it skipped zero-height images, then the whole document grew). So every article image holds a 4:3 box (`aspect-[auto_4/3]`, which switches to the real ratio once the image loads), and where the minimap shows (1280 px and up, `useIsXl` in `src/hooks/`) it loads eagerly, so the real sizes are known before the reader gets there (no explicit `fetchpriority`: the browser boosts an image that is in view, and an explicit `low` would opt out of that). Below that there is no minimap, so images stay lazy and a phone doesn't download a long post's images up front. An image that fails to load drops the box and shows its alt text. Hero images are not covered by this: they are already eager.
 - Raw HTML stays disabled.
 
 Syntax highlighting is via `rehype-highlight` with Xcode-flavored token colors defined in `index.css`. The `.hljs` base sets `background: transparent` so the `pre` component's background shows through cleanly.
