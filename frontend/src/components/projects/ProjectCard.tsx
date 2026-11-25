@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import StatusBadge from '../shared/StatusBadge';
 import Minimap from '../shared/Minimap';
@@ -13,6 +14,10 @@ export default function ProjectCard({ project }: Props) {
   const ext = getCategoryExtension(project.category);
   const extColor = ext ? EXT_COLORS[ext] : null;
   const isCodeProject = ext === 'ts' || ext === 'swift';
+  // A hero image that fails to load (a dangling URL, like SwiftNES's) counts as no image. The failed
+  // URL is stored rather than a flag, so a card given a different heroImage tries it again.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const hasHero = !!project.heroImage && failedSrc !== project.heroImage;
   const categoryLabel = project.category ? `${project.category} Project` : 'Project';
 
   return (
@@ -21,29 +26,31 @@ export default function ProjectCard({ project }: Props) {
     <article className="group relative flex flex-col rounded-xl border border-xcode-border-light dark:border-xcode-border bg-xcode-bg-light dark:bg-xcode-bg hover:border-xcode-accent/50 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-xcode-accent/5 focus-within:ring-2 focus-within:ring-xcode-accent transition-all duration-200 overflow-hidden motion-reduce:transform-none motion-reduce:transition-none">
       {/* Hero image / placeholder */}
       <div className="relative h-40 bg-xcode-surface-light dark:bg-xcode-surface overflow-hidden flex-shrink-0">
-        {project.heroImage ? (
+        {hasHero ? (
           <ResponsiveImage
             src={project.heroImage}
+            onError={() => setFailedSrc(project.heroImage)}
             sizes="(min-width: 1024px) 320px, (min-width: 640px) 50vw, 100vw"
             alt=""
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 motion-reduce:transform-none"
           />
         ) : ext ? (
-          <div className="w-full h-full flex items-center justify-center" aria-hidden>
+          <div data-testid="card-ext-placeholder" className="w-full h-full flex items-center justify-center" aria-hidden>
             <span className={`font-mono text-4xl select-none opacity-20 ${extColor}`}>.{ext}</span>
           </div>
         ) : (
           <div className="w-full h-full" />
         )}
 
-        {/* Minimap overlay — code projects only */}
-        {isCodeProject && (
-          <div className="absolute top-2 right-2 w-16 opacity-70">
+        {/* Decorative minimap: a fallback for code projects with no hero image, or one that
+            fails to load (it sits beside the centered .ext placeholder). A shown image replaces it. */}
+        {isCodeProject && !hasHero && (
+          <div data-testid="card-minimap" className="absolute top-2 right-2 w-16 opacity-70">
             <Minimap seed={project.id} rows={20} />
           </div>
         )}
 
-        {/* Featured star (left, so it doesn't sit on the minimap) */}
+        {/* Featured star (kept on the left, where it also stays clear of the minimap) */}
         {project.featured && (
           <div className="absolute top-2 left-2 z-10 pointer-events-none" aria-hidden>
             <span className="text-yellow-400 text-lg leading-none drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">★</span>
