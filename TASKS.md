@@ -307,6 +307,7 @@ At 1280 px or wider unless noted.
 - [ ] Open a post with several images (keyboard-build) and scroll down the first time: the bars should not shift or resize, and the page itself should not jump as you reach each image.
 - [ ] At phone width (below 1280 px), load a long post with devtools Network open: its images should not download until you scroll near them.
 - [ ] Drag the blue indicator: the page follows, and the spot you grabbed stays under the pointer. Letting go doesn't jump. Click elsewhere in the minimap: that spot is centered. Try a touch screen or trackpad too.
+- [ ] Headings show their text, images show thumbnails, code shows lines (green for comment-only lines). Hover a heading or image (away from the indicator) for the larger preview, and click one to scroll to it. Check light and dark themes, and with reduce motion on.
 
 ### Frontend (phases 4–5)
 

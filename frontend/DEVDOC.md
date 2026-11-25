@@ -240,15 +240,15 @@ The sidebar is shared between projects and posts. It accepts a `type` prop (`'pr
 
 The minimap on detail pages is a live, DOM-scanning document map — not decorative filler. It:
 
-1. **Scans the real DOM** via a `querySelectorAll` against the `contentRef` element for: `h1–h4`, `p`, `ul`, `ol`, `pre`, `img`, `figure`, `blockquote`, `hr`, `table`
-2. **Filters nested elements** — a `<p>` inside a `<li>` inside a `<ul>` is skipped; only the `<ul>` block is rendered (prevents double-counting)
+1. **Scans the real DOM** (`scanBlocks` in `src/lib/minimap.ts`) via a `querySelectorAll` against the `contentRef` element for: `h1–h4`, `p`, `ul`, `ol`, `pre`, `img`, `figure`, `blockquote`, `hr`, `table`. It records where each block is and what it needs to be drawn: a heading's text (without the `#` permalink, marked `data-heading-anchor` in `MarkdownRenderer`), an image's loaded URL and alt text, a code block's line outline.
+2. **Filters nested elements**: a `<p>` inside a `<li>` inside a `<ul>` is skipped; only the `<ul>` block is rendered (prevents double-counting). Markdown wraps a lone image in a `<p>`, so a paragraph that is only images is drawn as those images, and an image inside a paragraph with words stays part of the paragraph.
 3. **Positions each element proportionally**: `top = absTop × (sidebarHeight / documentHeight)`
 4. **Renders each type differently**:
-   - Headings: blue bars, width varies by level (h1 80% → h4 42%)
+   - Headings: the heading's own words in tiny type (7/6/5.5/5 px by level, theme accent color, ellipsized) on a patch that hides the lines under it. If the next heading is too close for the text to fit, a blue bar (width by level) instead.
    - Paragraphs: rows of 2px grey bars simulating text lines
    - Lists: same as paragraph but slightly indented
-   - Code blocks: light blue background with blue left border
-   - Images/figures: grey outlined rectangle
+   - Code blocks: light blue background with blue left border, and one mark per line of code (indent and length relative to the longest line; a line is green when everything on it is inside an `.hljs-comment` span from `rehype-highlight`, so `#if` or `*ptr` are never mistaken for comments, and code with a trailing comment isn't a comment line; deterministic; at most 60 lines kept, sampled evenly, and fewer drawn if they don't fit)
+   - Images/figures: a thumbnail of the picture, or a grey outlined box until it has loaded. The thumbnail is the URL the article itself loaded (`currentSrc`, usually the 1280 px size), so it comes from the browser's cache and costs no extra download or decode. An image `load`/`error` rescans, since a load doesn't always resize the article.
    - Blockquotes: grey left-border block
    - `<hr>`: 1px full-width grey rule
    - Tables: alternating row fills (header row is blue)
@@ -263,6 +263,7 @@ Props: `contentRef` (the article) and `contentKey` (the item's ID, or `null` whi
 - **One mapping:** a point `y` of the document is drawn `y × scale` pixels down the minimap (`scale` = minimap height ÷ document height). The bars, the indicator (`scrollY × scale` down, `viewH × scale` tall), clicks, and drags all use it. The math is in `src/lib/minimap.ts` (pure, tested in `minimap.test.ts`).
 - **Click to scroll:** centers the viewport on the click, so the indicator lands where you clicked (clamped at either end). It uses smooth scrolling unless the visitor prefers reduced motion.
 - **Dragging the indicator:** pointer events with pointer capture, so mouse, touch, and pen all work and the drag keeps going outside the minimap. Pressing records how far below the indicator's top edge you grabbed, and each move scrolls so that point stays under the pointer (instantly, not smoothly, and the indicator moves with it rather than waiting for the scroll event). The indicator's `top`/`height` transition is off while dragging. The press is `preventDefault`ed (no text selection), the indicator is `touch-action: none`, and `pointerup`, `pointercancel`, and `lostpointercapture` all end the drag. A click that starts on the indicator, including the one that ends a drag, never triggers a jump.
+- **Hover and click on bars:** headings and images (only those) take pointer events. Hovering one with a mouse or pen highlights it and shows a preview to the left of the minimap (the full heading text, or a larger image with its alt text); touch doesn't preview. Clicking one scrolls it to 64 px below the top of the window (clear of the navbar) instead of the minimap's own jump. The preview sits outside the track's `overflow-hidden`, and the hover state lives in `ScrollMinimap`, not in `Bars`, so scrolling still only re-renders the indicator. It is remembered as the bar's type and position (within 1 px, since positions are fractional), not its index, so a rescan that inserts or reorders elements can't point the open preview at a different one (if the bar moved, the preview closes until the mouse reaches a bar again). Hover transitions are `motion-safe:`. The indicator is above the bars, so a heading or image under it can't be hovered or clicked (pressing there drags).
 - **Not interactive for keyboards:** the minimap is decorative and `aria-hidden`, with nothing focusable in it; the page scrolls with the keyboard as usual.
 
 ---

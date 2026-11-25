@@ -51,6 +51,7 @@ function heading(Tag: 'h1' | 'h2' | 'h3' | 'h4', cls: string): Components['h1'] 
         {id && (
           <a
             href={`#${id}`}
+            data-heading-anchor
             className="ml-2 text-xcode-muted opacity-0 group-hover:opacity-100 focus-visible:opacity-100 no-underline font-mono text-[0.8em]"
             aria-label="Link to this section"
           >

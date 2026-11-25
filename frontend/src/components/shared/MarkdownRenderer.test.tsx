@@ -46,6 +46,8 @@ describe('MarkdownRenderer', () => {
     const heading = container.querySelector('h2');
     expect(heading?.id).toBe('getting-started');
     expect(heading?.querySelector('a')?.getAttribute('href')).toBe('#getting-started');
+    // The scroll minimap leaves the permalink out of the heading text it shows.
+    expect(heading?.querySelector('a')?.hasAttribute('data-heading-anchor')).toBe(true);
     expect(container.querySelector('table')?.parentElement?.className).toContain('overflow-x-auto');
   });
 
