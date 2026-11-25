@@ -252,15 +252,18 @@ The minimap on detail pages is a live, DOM-scanning document map — not decorat
    - Blockquotes: grey left-border block
    - `<hr>`: 1px full-width grey rule
    - Tables: alternating row fills (header row is blue)
-5. **Viewport highlight**: a translucent rectangle tracking scroll position
-6. **Click to scroll**: clicking the minimap jumps to the proportional position in the document
+5. **Viewport indicator**: a translucent rectangle tracking scroll position, which you can drag like a scrollbar thumb
+6. **Click to scroll**: clicking the minimap centers the viewport on that point
 
 Props: `contentRef` (the article) and `contentKey` (the item's ID, or `null` while nothing is shown). The scan runs when `contentKey` changes, after React has committed the article, so it also rescans when one article replaces another of the same height. A `ResizeObserver` on the article rescans when the layout changes (images load, code wraps).
 
 - **Document height:** re-measured with every scan, not just on scroll or resize, so content that loads after the first render doesn't leave the bars squashed at the old height.
 - **Hidden below 1280 px:** a `useSyncExternalStore` media query turns off the observers and scroll handlers entirely.
 - **Scrolling:** updates at most once per animation frame, and only the viewport highlight re-renders; the bars are a memoized child.
-- **Click to scroll:** uses smooth scrolling unless the visitor prefers reduced motion.
+- **One mapping:** a point `y` of the document is drawn `y × scale` pixels down the minimap (`scale` = minimap height ÷ document height). The bars, the indicator (`scrollY × scale` down, `viewH × scale` tall), clicks, and drags all use it. The math is in `src/lib/minimap.ts` (pure, tested in `minimap.test.ts`).
+- **Click to scroll:** centers the viewport on the click, so the indicator lands where you clicked (clamped at either end). It uses smooth scrolling unless the visitor prefers reduced motion.
+- **Dragging the indicator:** pointer events with pointer capture, so mouse, touch, and pen all work and the drag keeps going outside the minimap. Pressing records how far below the indicator's top edge you grabbed, and each move scrolls so that point stays under the pointer (instantly, not smoothly, and the indicator moves with it rather than waiting for the scroll event). The indicator's `top`/`height` transition is off while dragging. The press is `preventDefault`ed (no text selection), the indicator is `touch-action: none`, and `pointerup`, `pointercancel`, and `lostpointercapture` all end the drag. A click that starts on the indicator, including the one that ends a drag, never triggers a jump.
+- **Not interactive for keyboards:** the minimap is decorative and `aria-hidden`, with nothing focusable in it; the page scrolls with the keyboard as usual.
 
 ---
 

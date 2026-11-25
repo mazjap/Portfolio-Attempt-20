@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, memo, Fragment } from 'react';
 import { useIsXl } from '../../hooks/useIsXl';
 import { prefersReducedMotion } from '../../lib/motion';
+import { grabOffset, indicatorRect, minimapScale, scrollTopForClick, scrollTopForDrag, type MinimapSize } from '../../lib/minimap';
 
 type ElType = 'heading' | 'paragraph' | 'list' | 'image' | 'code' | 'blockquote' | 'hr' | 'table';
 
@@ -251,19 +252,67 @@ export default function ScrollMinimap({ contentRef, contentKey }: Props) {
     return () => ro.disconnect();
   }, [contentRef, contentKey, visible]);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // The size of everything right now, read from the page rather than from state, so a click or drag
+  // always uses what is on screen.
+  const measure = useCallback((): { top: number; size: MinimapSize } | null => {
     const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const ratio = (e.clientY - rect.top) / rect.height;
-    window.scrollTo({
-      top: ratio * (document.documentElement.scrollHeight - window.innerHeight),
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-    });
+    if (!rect) return null;
+    return {
+      top: rect.top,
+      size: { totalH: document.documentElement.scrollHeight, viewH: window.innerHeight, containerH: rect.height },
+    };
   }, []);
 
-  const scale = containerH / Math.max(totalH, 1);
-  const highlightTopPct = (scrollY / Math.max(totalH, 1)) * 100;
-  const highlightHeightPct = Math.min((viewH / Math.max(totalH, 1)) * 100, 100);
+  // Clicking the minimap centers the viewport on that point (smoothly, unless motion is reduced).
+  // A press on the indicator is the start of a drag, and its click is not a jump.
+  const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if ((e.target as Element).closest('[data-minimap-indicator]')) return;
+    const m = measure();
+    if (!m) return;
+    window.scrollTo({
+      top: scrollTopForClick(e.clientY - m.top, m.size),
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    });
+  }, [measure]);
+
+  // Dragging the indicator works like a scrollbar thumb: the point you grabbed stays under the pointer.
+  const drag = useRef<{ pointerId: number; grab: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const startDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary || e.button !== 0) return;
+    const m = measure();
+    if (!m) return;
+    e.preventDefault(); // no text selection, no focus change
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // The pointer is already gone; the drag will end on its own.
+    }
+    drag.current = { pointerId: e.pointerId, grab: grabOffset(e.clientY - m.top, window.scrollY, m.size) };
+    setDragging(true);
+  }, [measure]);
+
+  const moveDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current;
+    const m = measure();
+    if (!d || !m || e.pointerId !== d.pointerId) return;
+    const top = scrollTopForDrag(e.clientY - m.top, d.grab, m.size);
+    // Instant, so the page follows the pointer. The indicator is moved now rather than waiting for
+    // the scroll event.
+    window.scrollTo({ top, behavior: 'instant' });
+    setScrollY(top);
+  }, [measure]);
+
+  const endDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (drag.current?.pointerId !== e.pointerId) return;
+    drag.current = null;
+    setDragging(false);
+  }, []);
+
+  const size: MinimapSize = { totalH, viewH, containerH };
+  const scale = minimapScale(size);
+  const indicator = indicatorRect(scrollY, size);
 
   return (
     <div
@@ -274,12 +323,18 @@ export default function ScrollMinimap({ contentRef, contentKey }: Props) {
     >
       {visible && contentKey !== null && <Bars elements={elements} scale={scale} />}
 
-      {/* Viewport highlight */}
+      {/* Viewport indicator: drag it like a scrollbar thumb. */}
       <div
-        className="absolute inset-x-0 pointer-events-none z-10 transition-[top,height] duration-75"
+        data-minimap-indicator
+        onPointerDown={startDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
+        className={`absolute inset-x-0 z-10 touch-none ${dragging ? 'cursor-grabbing' : 'cursor-grab transition-[top,height] duration-75'}`}
         style={{
-          top: `${highlightTopPct}%`,
-          height: `${highlightHeightPct}%`,
+          top: indicator.top,
+          height: indicator.height,
           background: 'rgba(78,184,250,0.08)',
           borderTop: '1px solid rgba(78,184,250,0.35)',
           borderBottom: '1px solid rgba(78,184,250,0.35)',
