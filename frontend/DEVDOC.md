@@ -33,7 +33,10 @@ frontend/
 │   │   ├── category.ts          # Category → fake file extension and color
 │   │   ├── dates.ts             # Calendar-date formatting (no time-zone shift)
 │   │   ├── media.ts             # srcset for uploaded images
-│   │   └── motion.ts            # prefers-reduced-motion check
+│   │   ├── motion.ts            # prefers-reduced-motion check
+│   │   ├── shortcuts.ts         # Xcode-style keyboard shortcuts and the Konami code (matching only)
+│   │   ├── consoleCommands.ts   # Console commands that need no state: history, shortcuts, exit, the jokes
+│   │   └── greeting.ts          # Hello in the browser's developer console
 │   ├── types/
 │   │   └── index.ts             # Type-only re-exports of the backend's API types
 │   ├── hooks/
@@ -41,6 +44,7 @@ frontend/
 │   │   ├── useCachedList.ts     # Load a list through the shared cache
 │   │   ├── useProjects.ts       # useProjects / useProjectNav hooks
 │   │   ├── usePosts.ts          # usePosts / usePostNav hooks
+│   │   ├── useShortcutToasts.ts # Keyboard shortcuts and the Konami code → the navbar's toast
 │   │   └── useDocumentTitle.ts  # Per-page <title> and meta description
 │   ├── test/
 │   │   └── setup.ts             # Vitest setup (jsdom shims, cleanup)
@@ -343,7 +347,7 @@ If a smaller size is missing (older uploads, before `derive-media` has run on th
   - Project cards, gallery thumbnails, and the console are all reachable and show focus rings.
   - The console's Tab completes only when something is typed, so Shift+Tab (and Tab on an empty line) move focus normally.
   - Escape closes the console and returns focus to its button.
-- **Navbar shortcuts:** ⌘B and ⌘⇧K show the fake build toasts. They're ignored while typing in a field. ⌘R isn't intercepted, so the browser's reload still works.
+- **Shortcuts and Easter eggs:** see "Easter eggs" below. Shortcuts are ignored while typing in a field, and ⌘R isn't intercepted, so the browser's reload still works.
 - **Names and states:**
   - Gallery thumbnails are named ("Show TrekPoint screenshot 2 (2 of 5)"), the current one has `aria-current`, and arrow keys move through the gallery.
   - Tag filters use `aria-pressed`.
@@ -351,6 +355,37 @@ If a smaller size is missing (older uploads, before `derive-media` has run on th
   - The navbar toast is a status message.
 - **Titles:** `useDocumentTitle(title, description)` sets `<title> · Jordan Christensen` and the meta description per page. Link previews use the backend's share pages, since crawlers don't run JavaScript.
 - **Reduced motion:** a global `prefers-reduced-motion` rule turns off the animations, transitions, and smooth scrolling. The home page shows the name without typing it out.
+
+---
+
+## Easter eggs
+
+Small, optional surprises. None may get in the way of reading or browsing.
+
+**Keyboard shortcuts** (`useShortcutToasts` in `Navbar`, matching in `src/lib/shortcuts.ts`). Mac only, since they need ⌘. They show a toast in a `role="status"` region that is always mounted (so each toast is announced politely, and `pointer-events-none` keeps it from catching clicks). They're ignored while typing (`isTypingTarget`), ignore auto-repeat, and match modifiers exactly. No JS motion is involved, so there's nothing to gate on reduced motion (the toast's slide-in is CSS).
+
+| Keys | Toast |
+|------|-------|
+| ⌘B | Building… → Build Succeeded (with the time) |
+| ⌘⇧K | Clean Build Folder… → Done. |
+| ⌃⌘J | Jump to Definition: you are already here. |
+| ⌃⌘Y | Continuing… → Program ended with exit code: 0 |
+
+Before adding one, check it against Chrome, Safari, and Firefox on macOS, and the same letters on Windows and Linux. ⌃⌘J and ⌃⌘Y were picked because no browser binds Control+Command to a letter, while plain ⌘J and ⌘Y are Downloads and History. ⌘R (reload), ⌘U (Firefox view-source), ⌘. (Safari stop), ⌘⇧O, ⌘⇧Y, ⌘⇧B, ⌘K, and ⌘0 are taken. The shortcuts are listed by the console's `shortcuts` command.
+
+**Konami code** (↑ ↑ ↓ ↓ ← → ← → B A): an "Achievement unlocked" toast. It doesn't prevent any key's default action (the arrows still scroll), is ignored while typing, and resets on ⌘/Ctrl/Alt presses. It's hinted at by one of the `fortune` lines.
+
+**Console** (`Console.tsx`, plus `src/lib/consoleCommands.ts` for anything that doesn't need the console's directory or nav state). The planned commands are real and appear in `help` and tab completion: `vim`, `pet koda`, `man jordan`, `history`, `shortcuts`, `exit`. The jokes (`sudo`, `rm`, `git status|log|push` (a fake `git log`, not the GitHub one planned in TASKS.md), `xcodebuild`, `emacs`, `nano`, `make coffee` and `make me a sandwich`, `fortune`, and `koda` as an alias of `pet koda`) are hidden on purpose: `help` only says a few more are hiding, and Tab doesn't complete them. `runExtraCommand` returns `null` for anything else, so the console prints "command not found". `exit` closes the console and returns focus to the toggle; the Enter key's default is prevented so it can't then press that button and reopen it. `man jordan` and `whoami` share `WHOAMI_LINES`, so the manual page can't say anything the site doesn't already say.
+
+**Layout.** Output lines are `whitespace-pre-wrap break-words`, so indents and padded columns (`man jordan`, `help`, `history`, `shortcuts`) survive. The floating console's output is about 43 monospace columns wide on a 375 px phone (measured: 311 px of text at 7.2 px per character, with a thin scrollbar; a classic 15 px scrollbar leaves about 41) and about 62 on a desktop. Anything laid out in columns therefore stays within `COLUMN_BUDGET` (42) characters, and a test checks `help`, `man jordan`, and `shortcuts`. Prose lines (`fortune`, `whoami`) just wrap.
+
+**Fake vim.** `vim`, `vi`, or `nvim` (with an optional file name) sets `Console`'s `vim` state to `{ file }`. While it's set:
+- the output shows `~` lines and a `"name" 0L, 0B` status line, the prompt is `:`, and the title bar says "Terminal — vim";
+- every line typed is an ex command, handled by `runVimLine` (a leading `:` is optional): `:q`, `:wq`, `:x`, `:qa` and friends answer `E37: No write since last change (add ! to override)` and stay; `:q!` (and `:qa!`, `:wq!`, …) leaves; `:w [name]` pretends to write (`E32` with no name); `:set` and `:syntax` are silent; `:help` gives E149; anything else is `E492: Not an editor command`;
+- Escape leaves vim instead of closing the console (a second Escape closes it), and Tab doesn't complete, so it moves focus. ↑/↓ recall earlier vim lines, which are kept apart from the shell history, so `history` lists only shell commands (including the `vim notes.txt` that started it);
+- `clear` wipes the screen and leaves vim (a way out for people who don't know vim), and closing the console by any route (Escape from the shell, the traffic lights, the toggle button, `exit`) resets the mode.
+
+**Developer console greeting** (`src/lib/greeting.ts`, called from `main.tsx`): two `console.info` lines for people who open the browser's tools. Nothing is sent anywhere.
 
 ---
 
@@ -377,7 +412,8 @@ They cover:
 - gallery bounds, names, and keys;
 - the error boundary (reset on navigation, Try Again, the chunk-failure message);
 - the project card as a link;
-- console focus behavior;
+- console focus behavior and the Easter-egg commands;
+- the keyboard shortcuts (including that browser shortcuts and typing are left alone) and the Konami code;
 - the Markdown fixes;
 - the cache (sharing requests, no cached failures, validation);
 - the helpers.

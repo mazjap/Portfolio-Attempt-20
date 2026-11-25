@@ -97,12 +97,13 @@ Done October 29, 2026. Verified in headless Chrome against a production build (1
 
 - [ ] **Open Quickly (⌘⇧O)** (M): a fuzzy finder over projects, posts, and app pages, with arrow keys, Enter, and Escape, styled like Xcode's. Use the nav data (shared data layer). Make it reachable from a button for touch and mouse users too.
 - [ ] **Jump bar** (S): an Xcode-style breadcrumb under the navbar on detail pages (`portfolio › projects › trekpoint.swift`), using the same file extensions as the cards. Each segment links to its level, and the last opens a menu of sibling items. It doubles as mobile navigation (#17).
-- [ ] **More console commands** (M):
-  - `cat <id>`: print a post's or project's text in the terminal.
-  - `git log`: recent commits (from the GitHub API, cached).
-  - `vim`: a fake vim that `:q` won't leave, but Escape or `:q!` will.
-  - `pet koda` 🐕, `man jordan`, `exit`.
-  - Add the new commands to `help` and tab completion.
+- [ ] **More console commands** (M, #3):
+  - [ ] `cat <id>`: print a post's or project's text in the terminal.
+  - [ ] `git log`: recent commits (from the GitHub API, cached). For now a hidden fake `git log` (plus `git status` and `git push`) exists as a joke; replace it when this is built.
+  - [x] `vim`: a fake vim that `:q` won't leave (E37), but Escape or `:q!` will.
+  - [x] `pet koda` 🐕 (and a hidden `koda` alias), `man jordan` (only facts `whoami` already says), `exit`.
+  - [x] The new commands are in `help` and tab completion. A few jokes stay hidden on purpose (`sudo`, `rm`, `make`, `xcodebuild`, `fortune`, `emacs`, `nano`).
+- [x] **Other Easter eggs** (S, #3): ⌃⌘J "Jump to Definition" and ⌃⌘Y "Continue" shortcuts beside ⌘B and ⌘⇧K, the Konami code (an achievement toast), and a hello in the browser's developer console. The toast region is now a persistent `role="status"` so screen readers announce it. See "Easter eggs" in `frontend/DEVDOC.md`.
 - [ ] **⌘R actually runs something** (L): on a project page with a runnable demo, ⌘R opens a fake Simulator window running it. Start with the NES emulator if it can build to WebAssembly. Elsewhere ⌘R reloads as normal. Add a per-project `demo` field (see Backend), and lazy-load the runner.
 - [ ] **Trail map** (L): a `/hikes` page drawing GPX tracks exported from TrekPoint, with distance, elevation, and date. MapLibre GL is free; Mapbox GL matches TrekPoint but needs a public token. Needs the backend hikes API and Folio upload.
 
@@ -319,6 +320,18 @@ With both dev servers running, open `http://localhost:5173`.
   - Wide tables scroll.
 - [ ] Turn on Reduce Motion (System Settings → Accessibility → Display): the home page shows the name without typing it out, and nothing blinks or slides.
 - [ ] Check the tab titles on a few pages ("TrekPoint · Jordan Christensen", and so on).
+
+### November 25 batch: Easter eggs (#3)
+
+All on a Mac, in a built or dev frontend.
+
+- [ ] **Shortcuts in Safari, Chrome, and Firefox:** on any page, press ⌘B, ⌘⇧K, ⌃⌘J, and ⌃⌘Y. Each shows its toast at the top of the page, and no browser or macOS action fires (no sidebar, bookmarks bar, downloads, history, or Look Up). Firefox's ⌘B bookmarks sidebar is the likely conflict for the existing one. Also press ⌘R, ⌘J, ⌘Y, ⌘U, and ⌘. : the browser should do its usual thing.
+- [ ] **Not while typing:** focus the console's input (or any field) and press the same keys: no toasts.
+- [ ] **Konami code:** on a page, press ↑ ↑ ↓ ↓ ← → ← → B A: an "Achievement unlocked" toast shows (the page may scroll a little from the arrows). Nothing happens while the console input has focus.
+- [ ] **VoiceOver:** with VoiceOver on, each toast is announced once, politely (not repeated, and without moving focus).
+- [ ] **Reduced motion:** with Reduce Motion on, the toasts appear without sliding.
+- [ ] **Console, in both themes:** open `>_` and run `help` (the new commands are listed, plus "a few more are hiding"). Try `vim notes.txt` (the prompt becomes `:`, `:q` and `:wq` answer E37 and stay, `:q!` leaves), `vim` then Escape (leaves vim, the console stays open; Escape again closes it), `man jordan`, `pet koda`, `history`, `shortcuts`, and `exit`. Tab completes `vi`, `pe`, and `man`, but not `sudo` or `git`.
+- [ ] **Developer console:** open the browser's tools console on a fresh load: the hello shows once.
 
 ### October 31 batch (conflicts, media cleanup, app list, fresh lists)
 

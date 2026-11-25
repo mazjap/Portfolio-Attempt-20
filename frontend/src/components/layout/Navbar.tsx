@@ -1,15 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-
-type BuildState = null | 'building' | 'success';
-type CleanState = null | 'cleaning' | 'done';
+import { useShortcutToasts } from '../../hooks/useShortcutToasts';
 
 export default function Navbar() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
-  const [build, setBuild] = useState<BuildState>(null);
-  const [clean, setClean] = useState<CleanState>(null);
-
-  const timers = useRef<number[]>([]);
 
   function toggleDark() {
     const next = !dark;
@@ -22,50 +16,8 @@ export default function Navbar() {
     }
   }
 
-  // Xcode's shortcuts show fake build toasts. ⌘R isn't intercepted: browsers use it to reload, and
-  // reloading is how people recover from problems. Shortcuts are ignored while typing.
-  useEffect(() => {
-    const later = (fn: () => void, ms: number) => timers.current.push(window.setTimeout(fn, ms));
-    const clearTimers = () => {
-      timers.current.forEach(clearTimeout);
-      timers.current = [];
-    };
-
-    function handler(e: KeyboardEvent) {
-      if (!e.metaKey) return;
-      const target = e.target as HTMLElement | null;
-      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
-      if (!e.shiftKey && e.key === 'b') {
-        e.preventDefault();
-        clearTimers();
-        setClean(null);
-        setBuild('building');
-        later(() => setBuild('success'), 900);
-        later(() => setBuild(null), 3500);
-      }
-      if (e.shiftKey && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        clearTimers();
-        setBuild(null);
-        setClean('cleaning');
-        later(() => setClean('done'), 700);
-        later(() => setClean(null), 2500);
-      }
-    }
-    window.addEventListener('keydown', handler);
-    return () => {
-      window.removeEventListener('keydown', handler);
-      clearTimers();
-    };
-  }, []);
-
-  const toast = (() => {
-    if (build === 'building') return { text: '⟳  Building…', cls: 'text-xcode-yellow' };
-    if (build === 'success') return { text: '✓  Build Succeeded', cls: 'text-xcode-green' };
-    if (clean === 'cleaning') return { text: 'Clean Build Folder…', cls: 'text-xcode-muted' };
-    if (clean === 'done') return { text: 'Clean Build Folder… Done.', cls: 'text-xcode-muted' };
-    return null;
-  })();
+  // Xcode-style shortcuts and the Konami code show small toasts (see useShortcutToasts).
+  const toast = useShortcutToasts();
 
   const linkCls = ({ isActive }: { isActive: boolean }) =>
     `text-sm font-medium transition-colors ${
@@ -118,18 +70,19 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {toast && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 animate-slide-up" role="status">
-          <div className="flex items-center gap-2 rounded-lg px-4 py-2 bg-xcode-sidebar-light dark:bg-xcode-sidebar border border-xcode-border-light dark:border-xcode-border shadow-xl">
+      {/* The status region stays mounted, so screen readers announce each toast as it appears. */}
+      <div role="status" className="pointer-events-none fixed top-14 left-1/2 -translate-x-1/2 z-50">
+        {toast && (
+          <div className="flex items-center gap-2 rounded-lg px-4 py-2 bg-xcode-sidebar-light dark:bg-xcode-sidebar border border-xcode-border-light dark:border-xcode-border shadow-xl animate-slide-up">
             <span className={`font-mono text-sm ${toast.cls}`}>{toast.text}</span>
-            {build === 'success' && (
+            {toast.time && (
               <span className="font-mono text-xs text-xcode-muted">
                 {new Date().toLocaleTimeString()}
               </span>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </>
   );
 }
